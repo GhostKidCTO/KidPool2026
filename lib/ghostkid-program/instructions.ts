@@ -7,10 +7,12 @@ import {
 import {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
 } from '@solana/spl-token';
 
 const GHOSTKID_PROGRAM_ID = new PublicKey('4BTy6FpUakBpNNTJFF6V7BK4fKR2bds6Sh523Z3gxy4k');
 const METAPLEX_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
+const AUTH_RULES_PROGRAM_ID = new PublicKey('auth9SigNpDKz4sJJ1DfCTuZrZNSAgh9sFD3rboVmgg');
 
 export interface WithdrawNftsAccounts {
   nftReceipt: PublicKey;
@@ -44,8 +46,8 @@ export function getWithdrawNftsInstruction(
   const instructionData = Buffer.from('f3c0e4b775d6f067', 'hex');
   console.log('Using discriminator from successful tx:', instructionData.toString('hex'));
 
-  // Account order attempting to match Anchor IDL requirements
-  // Based on error logs showing metadata_program expected at different position
+  // Account order based on Anchor error logs.
+  // The program expects the legacy ATA program at the associated_token_program slot.
   const keys = [
     { pubkey: accounts.nftReceipt, isSigner: false, isWritable: true },        // #0
     { pubkey: accounts.vault, isSigner: false, isWritable: true },              // #1
@@ -63,10 +65,12 @@ export function getWithdrawNftsInstruction(
     { pubkey: accounts.tokenMint, isSigner: false, isWritable: false },         // #13 $KID token mint
     { pubkey: accounts.metaplexRuleset, isSigner: false, isWritable: false },   // #14
     { pubkey: accounts.metadataProgram, isSigner: false, isWritable: false },   // #15 Token Metadata Program
-    { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false }, // #16
-    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },           // #17
-    { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },// #18
-    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },    // #19
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },           // #16
+    { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },// #17
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },    // #18
+    { pubkey: AUTH_RULES_PROGRAM_ID, isSigner: false, isWritable: false },      // #19
+    { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },      // #20 (program names this "system_program" but validates as Token-2022)
+    { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false }, // #21
   ];
 
   return new TransactionInstruction({

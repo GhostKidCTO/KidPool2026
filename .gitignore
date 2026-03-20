@@ -39,3 +39,7 @@ next-env.d.ts
 *.swp
 *.swo
 *~
+
+# Environment variables
+.env.local
+.env*.local

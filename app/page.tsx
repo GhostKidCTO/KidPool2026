@@ -5,11 +5,24 @@ import { useMemo, useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { ConnectionProvider, WalletProvider, useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
-import { PhantomWalletAdapter, SolflareWalletAdapter } from '@solana/wallet-adapter-wallets';
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
+import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
 import { clusterApiUrl, PublicKey, Connection } from '@solana/web3.js';
-import { VaultNFTs, type VaultNFT } from './components/VaultNFTs';
-import { UnwrapSection } from './components/UnwrapSection';
-import { WrapSection } from './components/WrapSection';
+import type { VaultNFT } from './components/VaultNFTs';
+
+// Dynamically import Solana-heavy components to avoid SSR issues with bigint-buffer / spl-token
+const VaultNFTs = dynamic(
+  async () => (await import('./components/VaultNFTs')).VaultNFTs,
+  { ssr: false }
+);
+const UnwrapSection = dynamic(
+  async () => (await import('./components/UnwrapSection')).UnwrapSection,
+  { ssr: false }
+);
+const WrapSection = dynamic(
+  async () => (await import('./components/WrapSection')).WrapSection,
+  { ssr: false }
+);
 
 // Dynamically import wallet UI components to avoid SSR issues
 const WalletModalProvider = dynamic(

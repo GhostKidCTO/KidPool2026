@@ -1,5 +1,5 @@
 # Security Audit Report - GhostKid SPL-404 UI
-**Date:** 2026-01-03
+**Date:** 2026-03-20
 **Auditor:** Claude Code (Automated Security Review)
 **Application:** GhostKid SPL-404 NFT Unwrap/Wrap Interface
 
@@ -8,7 +8,7 @@
 ### Critical Issues Fixed ✅
 - **CRITICAL (CVSS 9.1)**: Next.js Authorization Bypass Vulnerability
   - **CVE**: GHSA-f82v-jwr5-mffw
-  - **Status**: FIXED - Updated Next.js 14.2.0 → 14.2.35
+  - **Status**: FIXED - Updated Next.js 14.2.0 → 16.2.0
   - **Impact**: Authorization bypass allowing unauthorized access
   - **Mitigation**: Updated to patched version
 
@@ -22,29 +22,52 @@
   - **Verification Date**: 2026-01-03
   - **Result**: "No vulnerable packages found! Your project is not affected by any known vulnerabilities."
 
+### 2026-03-20 Audit: Issues Fixed ✅
+- **HIGH**: Axios DoS via `__proto__` Key in mergeConfig — GHSA-43fc-jf86-j433 — `npm audit fix`
+- **HIGH**: h3 Request Smuggling (TE.TE) — GHSA-mp2g-9vg9-f4cg — `npm audit fix`
+- **HIGH**: h3 Path Traversal via percent-encoded dots — GHSA-wr4h-v87w-p3r7 — `npm audit fix`
+- **HIGH**: h3 SSE injection via unsanitized newlines — GHSA-22cc-p3c6-wpvm — `npm audit fix`
+- **HIGH**: socket.io-parser unbounded binary attachments — GHSA-677m-j7p3-52f9 — `npm audit fix`
+- **HIGH**: minimatch ReDoS (3 CVEs) — GHSA-3ppc-4f35-3m26, GHSA-7r86-cg39-jmmj, GHSA-23c5-xmqv-rm74 — `npm audit fix`
+- **MODERATE**: bn.js infinite loop — GHSA-378v-28hj-76wf — `npm audit fix`
+- **MODERATE**: lodash-es prototype pollution — GHSA-xxjr-mmjv-4gpg — `npm audit fix`
+- **HIGH/MODERATE**: elliptic + lodash via WalletConnect chain — resolved by forcing `@walletconnect/utils@2.23.8` and `@walletconnect/universal-provider@2.23.8` via `package.json` overrides (2.23.x replaced elliptic with `@noble/curves` and lodash with `es-toolkit`)
+
 ### High Severity Issues - Accepted Risk ⚠️
 - **HIGH (CVSS 7.5)**: bigint-buffer Buffer Overflow
   - **CVE**: GHSA-3gc7-fjrx-p6mg
   - **Status**: ACKNOWLEDGED - Transitive dependency via @solana/spl-token
   - **Impact**: Denial of Service (DoS) only - No data breach risk (C:N, I:N, A:H)
-  - **Justification**: Deep transitive dependency in Solana ecosystem. Fix requires breaking changes to core Solana packages. Risk is DoS only, no confidentiality or integrity impact.
+  - **Justification**: No fixed version exists for bigint-buffer (library unmaintained). Affects all versions (`*`). Solana ecosystem-wide issue. Fix requires breaking downgrade of @solana/spl-token to 0.1.8.
   - **Mitigation**: Monitor for Solana package updates, rate limiting on RPC endpoints
+
+- **HIGH**: Elliptic Risky Cryptographic Primitive Implementation
+  - **CVE**: GHSA-848j-6mx2-7j84
+  - **Status**: ACKNOWLEDGED - No fixed version exists (advisory covers all versions `*`)
+  - **Affected chain**: `@solana/wallet-adapter-torus` → `@toruslabs/eccrypto`; `crypto-browserify` → `browserify-sign`/`create-ecdh`; `@solana/wallet-adapter-trezor` → `@trezor/utxo-lib` → `tiny-secp256k1`
+  - **Mitigation**: Forced to latest `elliptic@6.6.1` via package.json overrides. WalletConnect chain fully eliminated (no longer uses elliptic). Remaining exposure is read-only cryptographic operations in wallet adapter code paths (Torus/Trezor) that run only in the user's browser.
 
 ## Dependency Security Status
 
 ### Updated Packages
 | Package | From | To | Reason |
 |---------|------|-----|--------|
-| next | 14.2.0 | 14.2.35 | Critical CVE fixes (12 vulnerabilities patched) |
+| next | 14.2.0 | 16.2.0 | Critical CVE fixes + latest stable |
 | @solana/spl-token | 0.4.1 | 0.4.14 | Latest stable version |
+| axios (transitive) | 1.x | patched | GHSA-43fc-jf86-j433 |
+| h3 (transitive) | ≤1.15.5 | patched | GHSA-mp2g-9vg9-f4cg, GHSA-wr4h-v87w-p3r7, GHSA-22cc-p3c6-wpvm |
+| socket.io-parser (transitive) | 4.0–4.2.5 | patched | GHSA-677m-j7p3-52f9 |
+| minimatch (transitive) | ≤3.1.3 | patched | 3 ReDoS CVEs |
+| bn.js (transitive) | <5.2.3 | patched | GHSA-378v-28hj-76wf |
+| lodash-es (transitive) | 4.0–4.17.22 | patched | GHSA-xxjr-mmjv-4gpg |
+| @walletconnect/* (overrides) | 2.19.1 | 2.23.8 | Eliminates elliptic + lodash deps |
 
 ### Outdated Dependencies (Non-Security)
 | Package | Current | Latest | Breaking | Notes |
 |---------|---------|--------|----------|-------|
-| next | 14.2.35 | 16.1.1 | Yes | Major version bump, stay on 14.x LTS |
 | react | 18.3.1 | 19.2.3 | Yes | React 19 breaking changes, stay on 18.x |
 | react-dom | 18.3.1 | 19.2.3 | Yes | Matches React version |
-| tailwindcss | 3.4.19 | 4.1.18 | Yes | Tailwind 4 major rewrite, stay on 3.x |
+| tailwindcss | 3.4.19 | 4.x | Yes | Tailwind 4 major rewrite, stay on 3.x |
 | bs58 | 5.0.0 | 6.0.0 | Maybe | Non-critical, can upgrade later |
 
 **Recommendation**: Stay on current major versions. All security patches applied within current major versions.
@@ -178,8 +201,19 @@
 ### Known CVEs
 | CVE | Severity | Status | Mitigation |
 |-----|----------|--------|------------|
-| GHSA-f82v-jwr5-mffw | Critical (9.1) | FIXED | Updated Next.js to 14.2.35 |
-| GHSA-3gc7-fjrx-p6mg | High (7.5) | ACCEPTED | DoS only, transitive dep, monitoring |
+| GHSA-f82v-jwr5-mffw | Critical (9.1) | FIXED | Updated Next.js to 16.2.0 |
+| GHSA-43fc-jf86-j433 | High | FIXED | npm audit fix |
+| GHSA-mp2g-9vg9-f4cg | High | FIXED | npm audit fix |
+| GHSA-wr4h-v87w-p3r7 | High | FIXED | npm audit fix |
+| GHSA-22cc-p3c6-wpvm | High | FIXED | npm audit fix |
+| GHSA-677m-j7p3-52f9 | High | FIXED | npm audit fix |
+| GHSA-3ppc-4f35-3m26 | High | FIXED | npm audit fix |
+| GHSA-7r86-cg39-jmmj | High | FIXED | npm audit fix |
+| GHSA-23c5-xmqv-rm74 | High | FIXED | npm audit fix |
+| GHSA-378v-28hj-76wf | Moderate | FIXED | npm audit fix |
+| GHSA-xxjr-mmjv-4gpg (lodash via WC) | Moderate | FIXED | @walletconnect override 2.23.8 |
+| GHSA-3gc7-fjrx-p6mg | High (7.5) | ACCEPTED | DoS only, no fix exists for bigint-buffer |
+| GHSA-848j-6mx2-7j84 | High | ACCEPTED | No fix exists; forced to latest elliptic@6.6.1; WalletConnect chain eliminated |
 
 ## Recommendations
 
@@ -223,5 +257,5 @@ The remaining HIGH severity vulnerability (bigint-buffer) is an accepted risk du
 
 ---
 
-**Next Review Date**: 2026-02-03 (30 days)
+**Next Review Date**: 2026-04-20 (30 days)
 **Automated Scanning**: Recommended weekly via npm audit

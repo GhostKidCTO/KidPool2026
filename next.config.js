@@ -2,7 +2,12 @@
 const nextConfig = {
   reactStrictMode: true,
   images: {
-    domains: ['arweave.net'],
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'arweave.net',
+      },
+    ],
   },
   webpack: (config, { isServer }) => {
     if (!isServer) {
@@ -16,6 +21,11 @@ const nextConfig = {
         buffer: require.resolve('buffer/'),
       };
     }
+    // Force CJS build of buffer-layout-utils — its ESM build is missing .js files
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      '@solana/buffer-layout-utils': require.resolve('@solana/buffer-layout-utils'),
+    };
     return config;
   },
 }
