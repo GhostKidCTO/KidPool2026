@@ -7,7 +7,6 @@ import {
 import {
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
-  TOKEN_2022_PROGRAM_ID,
 } from '@solana/spl-token';
 
 const GHOSTKID_PROGRAM_ID = new PublicKey('4BTy6FpUakBpNNTJFF6V7BK4fKR2bds6Sh523Z3gxy4k');
@@ -68,9 +67,8 @@ export function getWithdrawNftsInstruction(
     { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },           // #16
     { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },// #17
     { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },    // #18
-    { pubkey: AUTH_RULES_PROGRAM_ID, isSigner: false, isWritable: false },      // #19
-    { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },      // #20 (program names this "system_program" but validates as Token-2022)
-    { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false }, // #21
+    { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false }, // #19
+    { pubkey: AUTH_RULES_PROGRAM_ID, isSigner: false, isWritable: false },      // #20
   ];
 
   return new TransactionInstruction({

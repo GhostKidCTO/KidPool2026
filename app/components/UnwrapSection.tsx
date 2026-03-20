@@ -54,7 +54,7 @@ export function UnwrapSection({
   selectedNFT: VaultNFT | null;
   onSuccess: () => void;
 }) {
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey, signTransaction } = useWallet();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -222,22 +222,19 @@ export function UnwrapSection({
         throw new Error(`Transaction simulation failed: ${simError.message}`);
       }
 
-      // SECURITY: Transaction is now sent to wallet for signing
+      // SECURITY: Sign in wallet, broadcast directly via our RPC (bypasses Jupiter proxy)
       // Your private key NEVER leaves the wallet extension
-      // Wallet will prompt you to review and approve
+      if (!signTransaction) throw new Error('Wallet does not support signTransaction');
       let signature: string;
       try {
-        signature = await sendTransaction(transaction, connection, {
-          skipPreflight: false,
+        const signed = await signTransaction(transaction);
+        signature = await connection.sendRawTransaction(signed.serialize(), {
+          skipPreflight: true,
           preflightCommitment: 'confirmed',
         });
       } catch (txError: any) {
-        // Handle user rejection or transaction errors
-        if (txError.message?.includes('User rejected')) {
+        if (txError.message?.includes('User rejected') || txError.message?.includes('rejected')) {
           throw new Error('Transaction rejected by user');
-        }
-        if (txError.message?.includes('Simulation failed')) {
-          throw new Error('Transaction simulation failed. The instruction format may be incorrect. Please contact support with your program IDL.');
         }
         throw txError;
       }
