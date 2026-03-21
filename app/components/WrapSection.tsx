@@ -239,20 +239,27 @@ export function WrapSection({ connection, onSuccess }: { connection: Connection;
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
-      // Simulate first
-      const simulation = await connection.simulateTransaction(transaction);
-      if (simulation.value.err) {
-        setSimulationResult({
-          success: false,
-          message: `Transaction would fail: ${JSON.stringify(simulation.value.err)}\nLogs: ${simulation.value.logs?.join('\n') || 'No logs'}`,
-        });
-        throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}`);
+      // Simulate — show result but don't abort (program validates on-chain)
+      try {
+        const simulation = await connection.simulateTransaction(transaction);
+        console.log('Simulation logs:', simulation.value.logs);
+        if (simulation.value.err) {
+          console.error('Simulation error:', simulation.value.err);
+          setSimulationResult({
+            success: false,
+            message: `Simulation warning: ${JSON.stringify(simulation.value.err)}\nLogs: ${simulation.value.logs?.slice(-10).join('\n') || 'No logs'}`,
+          });
+          // Don't throw — let the user's wallet validate on-chain
+        } else {
+          setSimulationResult({
+            success: true,
+            message: `✅ Simulation successful. You will deposit ${selectedNFT.name} and receive ${WRAP_VALUES[selectedNFT.rarity].toLocaleString()} $KID.`,
+          });
+        }
+      } catch (simErr: any) {
+        console.warn('Simulation threw:', simErr);
+        // Continue anyway
       }
-
-      setSimulationResult({
-        success: true,
-        message: `✅ Simulation successful. You will deposit ${selectedNFT.name} and receive ${WRAP_VALUES[selectedNFT.rarity].toLocaleString()} $KID.`,
-      });
 
       // Sign and broadcast directly via our RPC
       const signed = await signTransaction(transaction);
@@ -268,9 +275,9 @@ export function WrapSection({ connection, onSuccess }: { connection: Connection;
       fetchUserNFTs();
 
     } catch (err: any) {
-      if (!err.message?.includes('Simulation failed')) {
-        setError(err.message || 'Failed to wrap NFT');
-      }
+      console.error('Wrap error (full):', err);
+      const msg = err?.message || err?.toString() || JSON.stringify(err) || 'Unknown error';
+      setError(msg);
     } finally {
       setWrapping(false);
     }

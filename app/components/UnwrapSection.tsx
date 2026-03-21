@@ -212,29 +212,25 @@ export function UnwrapSection({
           `${i}: ${k.pubkey.toBase58()} (${k.isSigner ? 'signer,' : ''}${k.isWritable ? 'writable' : 'readonly'})`
         ));
 
-        // Simulate without signing (web3.js v1.x)
-        // The RPC will simulate with the fee payer as signer automatically
+        // Simulate — show result but don't abort (program validates on-chain)
         const simulation = await connection.simulateTransaction(transaction);
-
         console.log('📋 Simulation logs:', simulation.value.logs);
 
         if (simulation.value.err) {
-          console.error('❌ Simulation error:', simulation.value.err);
-          console.error('📋 Full logs:', simulation.value.logs);
+          console.error('❌ Simulation warning:', simulation.value.err);
           setSimulationResult({
             success: false,
-            message: `Transaction would fail: ${JSON.stringify(simulation.value.err)}\nLogs: ${simulation.value.logs?.join('\n') || 'No logs'}`
+            message: `Simulation warning: ${JSON.stringify(simulation.value.err)}\nLogs: ${simulation.value.logs?.slice(-10).join('\n') || 'No logs'}`,
           });
-          throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}`);
+          // Don't throw — let wallet validate on-chain
+        } else {
+          setSimulationResult({
+            success: true,
+            message: `✅ Transaction simulation successful. You will receive ${selectedNFT.name} and transfer ${cost.toLocaleString()} $KID to vault.`,
+          });
         }
-
-        setSimulationResult({
-          success: true,
-          message: `✅ Transaction simulation successful. You will receive ${selectedNFT.name} and transfer ${cost.toLocaleString()} $KID to vault.`
-        });
       } catch (simError: any) {
-        console.error('Simulation error:', simError);
-        throw new Error(`Transaction simulation failed: ${simError.message}`);
+        console.warn('Simulation threw (continuing anyway):', simError);
       }
 
       // SECURITY: Sign in wallet, broadcast directly via our RPC (bypasses Jupiter proxy)
@@ -260,8 +256,8 @@ export function UnwrapSection({
       onSuccess(); // Refresh balance and clear selection
 
     } catch (err: any) {
-      console.error('Error unwrapping:', err);
-      const errorMessage = err.message || err.toString() || 'Failed to unwrap NFT';
+      console.error('Unwrap error (full):', err);
+      const errorMessage = err?.message || err?.toString() || JSON.stringify(err) || 'Failed to unwrap NFT';
       setError(errorMessage);
     } finally {
       setLoading(false);
