@@ -39,6 +39,44 @@ const WRAP_VALUES = {
   legendary: 25000,
 };
 
+function parseMetaplexMetadata(data: Buffer): { name: string; uri: string; collection?: string } {
+  try {
+    let offset = 1 + 32 + 32; // key(1) + update_authority(32) + mint(32)
+    const nameLen = data.readUInt32LE(offset); offset += 4;
+    const name = data.slice(offset, offset + nameLen).toString('utf8').replace(/\0/g, '').trim();
+    offset += nameLen;
+    const symbolLen = data.readUInt32LE(offset); offset += 4 + symbolLen;
+    const uriLen = data.readUInt32LE(offset); offset += 4;
+    const uri = data.slice(offset, offset + uriLen).toString('utf8').replace(/\0/g, '').trim();
+    offset += uriLen;
+    // Skip seller_fee_basis_points(2) + creators option
+    offset += 2;
+    const hasCreators = data.readUInt8(offset); offset += 1;
+    if (hasCreators) {
+      const creatorsLen = data.readUInt32LE(offset); offset += 4;
+      offset += creatorsLen * (32 + 1 + 1); // pubkey + verified + share
+    }
+    // Skip primary_sale_happened(1) + is_mutable(1)
+    offset += 2;
+    // edition_nonce option
+    const hasEditionNonce = data.readUInt8(offset); offset += 1;
+    if (hasEditionNonce) offset += 1;
+    // token_standard option
+    const hasTokenStandard = data.readUInt8(offset); offset += 1;
+    if (hasTokenStandard) offset += 1;
+    // collection option
+    const hasCollection = data.readUInt8(offset); offset += 1;
+    let collection: string | undefined;
+    if (hasCollection) {
+      offset += 1; // verified bool
+      collection = new PublicKey(data.slice(offset, offset + 32)).toBase58();
+    }
+    return { name, uri, collection };
+  } catch {
+    return { name: '', uri: '' };
+  }
+}
+
 export function WrapSection({ connection, onSuccess }: { connection: Connection; onSuccess?: () => void }) {
   const { publicKey, signTransaction } = useWallet();
   const [userNFTs, setUserNFTs] = useState<UserNFT[]>([]);
@@ -78,42 +116,66 @@ export function WrapSection({ connection, onSuccess }: { connection: Connection;
       setLoadingProgress({ current: 0, total: nftAccounts.length });
 
       const nfts: UserNFT[] = [];
+      const METAPLEX_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
 
       for (let i = 0; i < nftAccounts.length; i++) {
         const { account } = nftAccounts[i];
         const mintAddress = account.data.parsed.info.mint;
 
         try {
-          const metadataResponse = await fetch(`/api/metadata?url=https://api.ghostkid.io/metadata/${mintAddress}`);
-          if (!metadataResponse.ok) {
+          // Derive on-chain Metaplex metadata PDA
+          const mintPubkey = new PublicKey(mintAddress);
+          const [metadataPDA] = await PublicKey.findProgramAddress(
+            [Buffer.from('metadata'), METAPLEX_PROGRAM_ID.toBuffer(), mintPubkey.toBuffer()],
+            METAPLEX_PROGRAM_ID
+          );
+
+          const metadataAccount = await connection.getAccountInfo(metadataPDA);
+          if (!metadataAccount) {
             setLoadingProgress({ current: i + 1, total: nftAccounts.length });
             continue;
           }
 
-          const metadata = await metadataResponse.json();
+          // Parse on-chain metadata to get the URI
+          const parsed = parseMetaplexMetadata(metadataAccount.data);
 
-          if (metadata.collection?.key === ADDRESSES.ghostKidCollection.toBase58() ||
-              metadata.name?.toLowerCase().includes('ghostkid')) {
-            const attributes = metadata.attributes || [];
-            const rarityAttr = attributes.find((attr: any) =>
-              attr.trait_type?.toLowerCase() === 'rarity' ||
-              attr.trait_type?.toLowerCase() === 'tier'
-            );
+          // Filter: must be a GhostKid by name or collection
+          const isGhostKid =
+            parsed.name?.toLowerCase().includes('ghost') ||
+            parsed.collection === ADDRESSES.ghostKidCollection.toBase58();
 
-            let rarity: 'common' | 'rare' | 'legendary' = 'common';
-            if (rarityAttr) {
-              const v = rarityAttr.value?.toLowerCase();
-              if (v === 'legendary' || v === 'mythic') rarity = 'legendary';
-              else if (v === 'rare' || v === 'epic') rarity = 'rare';
-            }
-
-            nfts.push({
-              mint: mintAddress,
-              name: metadata.name || `GhostKid #${mintAddress.slice(0, 4)}`,
-              image: metadata.image || '',
-              rarity,
-            });
+          if (!isGhostKid || !parsed.uri) {
+            setLoadingProgress({ current: i + 1, total: nftAccounts.length });
+            continue;
           }
+
+          // Fetch off-chain JSON (Arweave/IPFS) via CORS proxy
+          const response = await fetch(`/api/metadata?url=${encodeURIComponent(parsed.uri)}`);
+          if (!response.ok) {
+            setLoadingProgress({ current: i + 1, total: nftAccounts.length });
+            continue;
+          }
+
+          const json = await response.json();
+          const attributes = json.attributes || [];
+          const rarityAttr = attributes.find((attr: any) =>
+            attr.trait_type?.toLowerCase() === 'rarity' ||
+            attr.trait_type?.toLowerCase() === 'tier'
+          );
+
+          let rarity: 'common' | 'rare' | 'legendary' = 'common';
+          if (rarityAttr) {
+            const v = rarityAttr.value?.toLowerCase();
+            if (v === 'legendary' || v === 'mythic') rarity = 'legendary';
+            else if (v === 'rare' || v === 'epic') rarity = 'rare';
+          }
+
+          nfts.push({
+            mint: mintAddress,
+            name: json.name || parsed.name || `GhostKid #${mintAddress.slice(0, 4)}`,
+            image: json.image || '',
+            rarity,
+          });
 
           setLoadingProgress({ current: i + 1, total: nftAccounts.length });
         } catch {
@@ -121,8 +183,9 @@ export function WrapSection({ connection, onSuccess }: { connection: Connection;
           continue;
         }
 
-        if (i < nftAccounts.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 100));
+        // Small delay to avoid hammering RPC
+        if (i < nftAccounts.length - 1 && i % 5 === 4) {
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
       }
 
