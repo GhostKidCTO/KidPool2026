@@ -3,18 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { Connection, PublicKey, Transaction } from '@solana/web3.js';
-import {
-  TOKEN_PROGRAM_ID,
-  getAssociatedTokenAddress,
-  createAssociatedTokenAccountInstruction,
-} from '@solana/spl-token';
-import {
-  getDepositNftsInstruction,
-  getNftReceiptPDA,
-  getTokenRecordPDA,
-  getMetadataPDA,
-  getEditionPDA,
-} from '@/lib/ghostkid-program/instructions';
+import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
+// Transaction building is server-side (/api/wrap) — authority co-signature required by the program
 
 interface UserNFT {
   mint: string;
@@ -171,111 +161,32 @@ export function WrapSection({ connection, onSuccess }: { connection: Connection;
       setSuccess(null);
       setSimulationResult(null);
 
-      const nftMint = new PublicKey(selectedNFT.mint);
+      // Server pre-signs with the authority keypair (required by the GhostKid program)
+      const resp = await fetch('/api/wrap', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mintAddress: selectedNFT.mint,
+          depositorAddress: publicKey.toBase58(),
+        }),
+      });
 
-      // User's NFT token account (source)
-      const userNftAccount = await getAssociatedTokenAddress(nftMint, publicKey);
-
-      // Vault's NFT token account (destination) — vault is a PDA (off-curve), must allow
-      const vaultNftAccount = await getAssociatedTokenAddress(nftMint, ADDRESSES.ghostKidVault, true);
-
-      // User's $KID account (receives $KID)
-      const userKidAccount = await getAssociatedTokenAddress(ADDRESSES.kidsTokenMint, publicKey);
-
-      // PDAs
-      const [nftReceipt] = await getNftReceiptPDA(nftMint);
-      const [metadataPDA] = await getMetadataPDA(nftMint);
-      const [editionPDA] = await getEditionPDA(nftMint);
-      const [sourceTokenRecord] = await getTokenRecordPDA(nftMint, userNftAccount);
-      const [destinationTokenRecord] = await getTokenRecordPDA(nftMint, vaultNftAccount);
-
-      // Create user's $KID ATA in a separate tx first if it doesn't exist.
-      // (The GhostKid program's init_if_needed handles the vault's NFT ATA — do NOT pre-create it.)
-      const userKidAccountInfo = await connection.getAccountInfo(userKidAccount);
-      if (!userKidAccountInfo) {
-        const setupTx = new Transaction();
-        setupTx.add(
-          createAssociatedTokenAccountInstruction(
-            publicKey,
-            userKidAccount,
-            publicKey,
-            ADDRESSES.kidsTokenMint
-          )
-        );
-        const { blockhash: setupBlockhash } = await connection.getLatestBlockhash('confirmed');
-        setupTx.recentBlockhash = setupBlockhash;
-        setupTx.feePayer = publicKey;
-        const signedSetup = await signTransaction(setupTx);
-        const setupSig = await connection.sendRawTransaction(signedSetup.serialize(), {
-          skipPreflight: true,
-          preflightCommitment: 'confirmed',
-        });
-        await connection.confirmTransaction(setupSig, 'confirmed');
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({ error: 'Server error' }));
+        throw new Error(err.error || `Server error ${resp.status}`);
       }
 
-      const transaction = new Transaction();
+      const { transaction: txBase64 } = await resp.json();
 
-      // Create vault's NFT ATA in the same tx if needed — reference on-chain tx does this
-      const vaultNftAccountInfo = await connection.getAccountInfo(vaultNftAccount);
-      if (!vaultNftAccountInfo) {
-        transaction.add(
-          createAssociatedTokenAccountInstruction(
-            publicKey,
-            vaultNftAccount,
-            ADDRESSES.ghostKidVault,
-            nftMint
-          )
-        );
-      }
+      // Deserialize the authority-pre-signed transaction
+      const transaction = Transaction.from(Buffer.from(txBase64, 'base64'));
 
-      transaction.add(
-        getDepositNftsInstruction({
-          nftReceipt,
-          vault: ADDRESSES.ghostKidVault,
-          vaultTokenAccount: ADDRESSES.ghostKidVaultTokenAccount,
-          authority: ADDRESSES.ghostKidAuthority,
-          depositor: publicKey,
-          depositorTokenAccount: userKidAccount,
-          sourceNftTokenAccount: userNftAccount,
-          mint: nftMint,
-          destinationNftTokenAccount: vaultNftAccount,
-          sourceTokenRecord,
-          destinationTokenRecord,
-          edition: editionPDA,
-          metadata: metadataPDA,
-          tokenMint: ADDRESSES.kidsTokenMint,
-          metaplexRuleset: ADDRESSES.metaplexRuleset,
-          metadataProgram: ADDRESSES.metaplexTokenMetadataProgram,
-        })
-      );
+      setSimulationResult({
+        success: true,
+        message: `✅ Transaction prepared. You will deposit ${selectedNFT.name} and receive ${WRAP_VALUES[selectedNFT.rarity].toLocaleString()} $KID.`,
+      });
 
-      const { blockhash } = await connection.getLatestBlockhash('confirmed');
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = publicKey;
-
-      // Simulate — show result but don't abort (program validates on-chain)
-      try {
-        const simulation = await connection.simulateTransaction(transaction);
-        console.log('Simulation logs:', simulation.value.logs);
-        if (simulation.value.err) {
-          console.warn('Simulation inconclusive (proceeding):', simulation.value.err);
-          setSimulationResult({
-            success: true,
-            message: `⚠️ Pre-flight check inconclusive — proceeding to wallet for final validation.`,
-          });
-          // Don't throw — on-chain program validates correctly
-        } else {
-          setSimulationResult({
-            success: true,
-            message: `✅ Simulation successful. You will deposit ${selectedNFT.name} and receive ${WRAP_VALUES[selectedNFT.rarity].toLocaleString()} $KID.`,
-          });
-        }
-      } catch (simErr: any) {
-        console.warn('Simulation threw:', simErr);
-        // Continue anyway
-      }
-
-      // Sign and broadcast directly via our RPC
+      // User adds their signature and we broadcast
       const signed = await signTransaction(transaction);
       const signature = await connection.sendRawTransaction(signed.serialize(), {
         skipPreflight: true,
