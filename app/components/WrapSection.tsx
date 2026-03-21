@@ -102,92 +102,57 @@ export function WrapSection({ connection, onSuccess }: { connection: Connection;
     try {
       setLoading(true);
       setError(null);
+      setLoadingProgress({ current: 0, total: 0 });
 
-      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
-        publicKey,
-        { programId: TOKEN_PROGRAM_ID }
-      );
-
-      const nftAccounts = tokenAccounts.value.filter(({ account }) => {
-        const data = account.data.parsed.info;
-        return data.tokenAmount.decimals === 0 && data.tokenAmount.uiAmount === 1;
+      // Use Helius DAS API — returns all assets with collection metadata in one call
+      const rpcEndpoint = process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com';
+      const response = await fetch(rpcEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'gk-wrap',
+          method: 'getAssetsByOwner',
+          params: {
+            ownerAddress: publicKey.toBase58(),
+            page: 1,
+            limit: 1000,
+            displayOptions: { showFungible: false, showNativeBalance: false },
+          },
+        }),
       });
 
-      setLoadingProgress({ current: 0, total: nftAccounts.length });
+      const data = await response.json();
+      const assets: any[] = data.result?.items || [];
 
-      const nfts: UserNFT[] = [];
-      const METAPLEX_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
+      const collectionKey = ADDRESSES.ghostKidCollection.toBase58();
+      const ghostKidAssets = assets.filter((asset: any) =>
+        asset.grouping?.some(
+          (g: any) => g.group_key === 'collection' && g.group_value === collectionKey
+        )
+      );
 
-      for (let i = 0; i < nftAccounts.length; i++) {
-        const { account } = nftAccounts[i];
-        const mintAddress = account.data.parsed.info.mint;
+      setLoadingProgress({ current: ghostKidAssets.length, total: ghostKidAssets.length });
 
-        try {
-          // Derive on-chain Metaplex metadata PDA
-          const mintPubkey = new PublicKey(mintAddress);
-          const [metadataPDA] = await PublicKey.findProgramAddress(
-            [Buffer.from('metadata'), METAPLEX_PROGRAM_ID.toBuffer(), mintPubkey.toBuffer()],
-            METAPLEX_PROGRAM_ID
-          );
+      const nfts: UserNFT[] = ghostKidAssets.map((asset: any) => {
+        const attributes: any[] = asset.content?.metadata?.attributes || [];
+        const rarityAttr = attributes.find((attr: any) =>
+          attr.trait_type?.toLowerCase() === 'rarity' ||
+          attr.trait_type?.toLowerCase() === 'tier'
+        );
 
-          const metadataAccount = await connection.getAccountInfo(metadataPDA);
-          if (!metadataAccount) {
-            setLoadingProgress({ current: i + 1, total: nftAccounts.length });
-            continue;
-          }
-
-          // Parse on-chain metadata to get the URI
-          const parsed = parseMetaplexMetadata(metadataAccount.data);
-
-          // Filter: must be a GhostKid by name or collection
-          const isGhostKid =
-            parsed.name?.toLowerCase().includes('ghost') ||
-            parsed.collection === ADDRESSES.ghostKidCollection.toBase58();
-
-          if (!isGhostKid || !parsed.uri) {
-            setLoadingProgress({ current: i + 1, total: nftAccounts.length });
-            continue;
-          }
-
-          // Fetch off-chain JSON (Arweave/IPFS) via CORS proxy
-          const response = await fetch(`/api/metadata?url=${encodeURIComponent(parsed.uri)}`);
-          if (!response.ok) {
-            setLoadingProgress({ current: i + 1, total: nftAccounts.length });
-            continue;
-          }
-
-          const json = await response.json();
-          const attributes = json.attributes || [];
-          const rarityAttr = attributes.find((attr: any) =>
-            attr.trait_type?.toLowerCase() === 'rarity' ||
-            attr.trait_type?.toLowerCase() === 'tier'
-          );
-
-          let rarity: 'common' | 'rare' | 'legendary' = 'common';
-          if (rarityAttr) {
-            const v = rarityAttr.value?.toLowerCase();
-            if (v === 'legendary' || v === 'mythic') rarity = 'legendary';
-            else if (v === 'rare' || v === 'epic') rarity = 'rare';
-          }
-
-          nfts.push({
-            mint: mintAddress,
-            name: json.name || parsed.name || `GhostKid #${mintAddress.slice(0, 4)}`,
-            image: json.image || '',
-            rarity,
-          });
-
-          setLoadingProgress({ current: i + 1, total: nftAccounts.length });
-        } catch {
-          setLoadingProgress({ current: i + 1, total: nftAccounts.length });
-          continue;
+        let rarity: 'common' | 'rare' | 'legendary' = 'common';
+        if (rarityAttr) {
+          const v = rarityAttr.value?.toLowerCase();
+          if (v === 'legendary' || v === 'mythic') rarity = 'legendary';
+          else if (v === 'rare' || v === 'epic') rarity = 'rare';
         }
 
-        // Small delay to avoid hammering RPC
-        if (i < nftAccounts.length - 1 && i % 5 === 4) {
-          await new Promise(resolve => setTimeout(resolve, 300));
-        }
-      }
+        const image = asset.content?.links?.image || asset.content?.files?.[0]?.uri || '';
+        const name = asset.content?.metadata?.name || `GhostKid #${asset.id?.slice(0, 4)}`;
+
+        return { mint: asset.id, name, image, rarity };
+      });
 
       setUserNFTs(nfts);
     } catch (err: any) {
@@ -224,25 +189,12 @@ export function WrapSection({ connection, onSuccess }: { connection: Connection;
       const [sourceTokenRecord] = await getTokenRecordPDA(nftMint, userNftAccount);
       const [destinationTokenRecord] = await getTokenRecordPDA(nftMint, vaultNftAccount);
 
-      const transaction = new Transaction();
-
-      // Create vault's ATA for this NFT if needed
-      const vaultNftAccountInfo = await connection.getAccountInfo(vaultNftAccount);
-      if (!vaultNftAccountInfo) {
-        transaction.add(
-          createAssociatedTokenAccountInstruction(
-            publicKey,
-            vaultNftAccount,
-            ADDRESSES.ghostKidVault,
-            nftMint
-          )
-        );
-      }
-
-      // Create user's $KID ATA if needed
+      // Create user's $KID ATA in a separate tx first if it doesn't exist.
+      // (The GhostKid program's init_if_needed handles the vault's NFT ATA — do NOT pre-create it.)
       const userKidAccountInfo = await connection.getAccountInfo(userKidAccount);
       if (!userKidAccountInfo) {
-        transaction.add(
+        const setupTx = new Transaction();
+        setupTx.add(
           createAssociatedTokenAccountInstruction(
             publicKey,
             userKidAccount,
@@ -250,8 +202,18 @@ export function WrapSection({ connection, onSuccess }: { connection: Connection;
             ADDRESSES.kidsTokenMint
           )
         );
+        const { blockhash: setupBlockhash } = await connection.getLatestBlockhash('confirmed');
+        setupTx.recentBlockhash = setupBlockhash;
+        setupTx.feePayer = publicKey;
+        const signedSetup = await signTransaction(setupTx);
+        const setupSig = await connection.sendRawTransaction(signedSetup.serialize(), {
+          skipPreflight: true,
+          preflightCommitment: 'confirmed',
+        });
+        await connection.confirmTransaction(setupSig, 'confirmed');
       }
 
+      const transaction = new Transaction();
       transaction.add(
         getDepositNftsInstruction({
           nftReceipt,

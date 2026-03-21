@@ -146,12 +146,14 @@ export function UnwrapSection({
       const [destinationTokenRecord] = await getTokenRecordPDA(nftMint, userNftAccount);
       console.log('📋 Destination Token Record:', destinationTokenRecord.toBase58());
 
-      const transaction = new Transaction();
-
-      // Check if user needs an ATA for the NFT
+      // Create user's NFT ATA in a separate confirmed tx first if needed.
+      // Bundling ATA creation with the withdraw in one tx causes IncorrectProgramId in
+      // Metaplex Transfer because the destination token record state is ambiguous.
       const userNftAccountInfo = await connection.getAccountInfo(userNftAccount);
       if (!userNftAccountInfo) {
-        transaction.add(
+        setPreparingTx(true);
+        const setupTx = new Transaction();
+        setupTx.add(
           createAssociatedTokenAccountInstruction(
             publicKey,
             userNftAccount,
@@ -159,7 +161,20 @@ export function UnwrapSection({
             nftMint
           )
         );
+        const { blockhash: setupBlockhash } = await connection.getLatestBlockhash('confirmed');
+        setupTx.recentBlockhash = setupBlockhash;
+        setupTx.feePayer = publicKey;
+        if (!signTransaction) throw new Error('Wallet does not support signTransaction');
+        const signedSetup = await signTransaction(setupTx);
+        const setupSig = await connection.sendRawTransaction(signedSetup.serialize(), {
+          skipPreflight: true,
+          preflightCommitment: 'confirmed',
+        });
+        await connection.confirmTransaction(setupSig, 'confirmed');
+        setPreparingTx(false);
       }
+
+      const transaction = new Transaction();
 
       // Build the withdraw NFT instruction using our instruction builder
       const unwrapInstruction = getWithdrawNftsInstruction({
@@ -224,7 +239,6 @@ export function UnwrapSection({
 
       // SECURITY: Sign in wallet, broadcast directly via our RPC (bypasses Jupiter proxy)
       // Your private key NEVER leaves the wallet extension
-      if (!signTransaction) throw new Error('Wallet does not support signTransaction');
       let signature: string;
       try {
         const signed = await signTransaction(transaction);
