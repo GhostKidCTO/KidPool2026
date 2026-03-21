@@ -78,6 +78,67 @@ export function getWithdrawNftsInstruction(
   });
 }
 
+export interface DepositNftsAccounts {
+  nftReceipt: PublicKey;
+  vault: PublicKey;
+  vaultTokenAccount: PublicKey;
+  authority: PublicKey;
+  depositor: PublicKey;
+  depositorTokenAccount: PublicKey;
+  sourceNftTokenAccount: PublicKey;
+  mint: PublicKey;
+  destinationNftTokenAccount: PublicKey;
+  sourceTokenRecord: PublicKey;
+  destinationTokenRecord: PublicKey;
+  edition: PublicKey;
+  metadata: PublicKey;
+  tokenMint: PublicKey;
+  metaplexRuleset: PublicKey;
+  metadataProgram: PublicKey;
+}
+
+/**
+ * Creates a deposit NFTs instruction for the GhostKid program (wrap: NFT → $KID)
+ * Reverse engineered from successful transaction:
+ * Signature: 5oV7kLDoEVoppfoPM6x54ynDAPMu7ryVJmEDapTyfu3NKBQQ83txxhhaKox1Nofd4VT4AmH8FKHfa6fQ9QgJ8u34
+ * Note: ATA and TOKEN program IDs are swapped vs withdraw (#16=AToken, #17=Token)
+ */
+export function getDepositNftsInstruction(
+  accounts: DepositNftsAccounts
+): TransactionInstruction {
+  const instructionData = Buffer.from('df8d691608bc5975', 'hex');
+
+  const keys = [
+    { pubkey: accounts.nftReceipt, isSigner: false, isWritable: true },               // #0
+    { pubkey: accounts.vault, isSigner: false, isWritable: true },                     // #1
+    { pubkey: accounts.vaultTokenAccount, isSigner: false, isWritable: true },         // #2
+    { pubkey: accounts.authority, isSigner: false, isWritable: true },                 // #3
+    { pubkey: accounts.depositor, isSigner: true, isWritable: true },                  // #4
+    { pubkey: accounts.depositorTokenAccount, isSigner: false, isWritable: true },     // #5 (receives $KID)
+    { pubkey: accounts.sourceNftTokenAccount, isSigner: false, isWritable: true },     // #6 (user's NFT account)
+    { pubkey: accounts.mint, isSigner: false, isWritable: false },                     // #7
+    { pubkey: accounts.destinationNftTokenAccount, isSigner: false, isWritable: true },// #8 (vault's NFT account)
+    { pubkey: accounts.sourceTokenRecord, isSigner: false, isWritable: true },         // #9 (user's token record)
+    { pubkey: accounts.destinationTokenRecord, isSigner: false, isWritable: true },    // #10 (vault's token record)
+    { pubkey: accounts.edition, isSigner: false, isWritable: true },                   // #11
+    { pubkey: accounts.metadata, isSigner: false, isWritable: true },                  // #12
+    { pubkey: accounts.tokenMint, isSigner: false, isWritable: false },                // #13 $KID token mint
+    { pubkey: accounts.metaplexRuleset, isSigner: false, isWritable: false },          // #14
+    { pubkey: accounts.metadataProgram, isSigner: false, isWritable: false },          // #15
+    { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },       // #16 (swapped vs withdraw)
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },                  // #17 (swapped vs withdraw)
+    { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },           // #18
+    { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },        // #19
+    { pubkey: AUTH_RULES_PROGRAM_ID, isSigner: false, isWritable: false },             // #20
+  ];
+
+  return new TransactionInstruction({
+    keys,
+    programId: GHOSTKID_PROGRAM_ID,
+    data: instructionData,
+  });
+}
+
 /**
  * Helper to derive NFT receipt PDA
  */
