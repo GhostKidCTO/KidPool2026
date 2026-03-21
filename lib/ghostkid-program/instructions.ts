@@ -106,8 +106,9 @@ export interface DepositNftsAccounts {
 export function getDepositNftsInstruction(
   accounts: DepositNftsAccounts
 ): TransactionInstruction {
-  // Discriminator verified from on-chain tx: 5oV7kLDoEVoppfoPM6x54ynDAPMu7ryVJmEDapTyfu3NKBQQ83txxhhaKox1Nofd4VT4AmH8FKHfa6fQ9QgJ8u34
-  const instructionData = Buffer.from('a1353b929459d5ca', 'hex');
+  // Full 9-byte instruction data from reference tx (discriminator + 0x01 boolean arg):
+  // 5oV7kLDoEVoppfoPM6x54ynDAPMu7ryVJmEDapTyfu3NKBQQ83txxhhaKox1Nofd4VT4AmH8FKHfa6fQ9QgJ8u34
+  const instructionData = Buffer.from('a1353b929459d5ca01', 'hex');
 
   const keys = [
     { pubkey: accounts.nftReceipt, isSigner: false, isWritable: true },               // #0
