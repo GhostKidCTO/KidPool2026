@@ -176,8 +176,8 @@ export function WrapSection({ connection, onSuccess }: { connection: Connection;
       // User's NFT token account (source)
       const userNftAccount = await getAssociatedTokenAddress(nftMint, publicKey);
 
-      // Vault's NFT token account (destination)
-      const vaultNftAccount = await getAssociatedTokenAddress(nftMint, ADDRESSES.ghostKidVault);
+      // Vault's NFT token account (destination) — vault is a PDA (off-curve), must allow
+      const vaultNftAccount = await getAssociatedTokenAddress(nftMint, ADDRESSES.ghostKidVault, true);
 
       // User's $KID account (receives $KID)
       const userKidAccount = await getAssociatedTokenAddress(ADDRESSES.kidsTokenMint, publicKey);
