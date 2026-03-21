@@ -258,7 +258,7 @@ export function WrapSection({ connection, onSuccess }: { connection: Connection;
         const simulation = await connection.simulateTransaction(transaction);
         console.log('Simulation logs:', simulation.value.logs);
         if (simulation.value.err) {
-          console.error('Simulation error:', simulation.value.err);
+          console.warn('Simulation inconclusive (proceeding):', simulation.value.err);
           setSimulationResult({
             success: true,
             message: `⚠️ Pre-flight check inconclusive — proceeding to wallet for final validation.`,
