@@ -13,39 +13,67 @@ export interface VaultNFT {
 
 const VAULT_ADDRESS = 'JCSbaLqdn6nKtTVTUjAaxsv28TBhmpypcY3VAqdGKWLA';
 
-function determineRarity(attributes: any[]): 'common' | 'rare' | 'legendary' {
-  // Check for specific rare/legendary traits
-  // This logic can be customized based on your NFT trait structure
+// ── Rarity helpers (single source of truth) ─────────────────────────────────
 
+export type Rarity = 'common' | 'rare' | 'legendary';
+
+export function rarityFromAttributes(attributes: any[]): Rarity {
   if (!attributes || attributes.length === 0) return 'common';
-
-  // Look for rarity indicators in attributes
-  const rarityTrait = attributes.find(attr =>
-    attr.trait_type?.toLowerCase() === 'rarity' ||
-    attr.trait_type?.toLowerCase() === 'tier'
+  const t = attributes.find(
+    a => a.trait_type?.toLowerCase() === 'rarity' || a.trait_type?.toLowerCase() === 'tier'
   );
-
-  if (rarityTrait) {
-    const value = rarityTrait.value?.toLowerCase();
-    if (value === 'legendary' || value === 'mythic') return 'legendary';
-    if (value === 'rare' || value === 'epic') return 'rare';
+  if (t) {
+    const v = t.value?.toLowerCase();
+    if (v === 'legendary' || v === 'mythic') return 'legendary';
+    if (v === 'rare' || v === 'epic') return 'rare';
     return 'common';
   }
-
-  // Alternative: count rare traits (customize based on your collection)
-  const rareTraits = attributes.filter(attr => {
-    const value = attr.value?.toLowerCase() || '';
-    return value.includes('gold') ||
-           value.includes('diamond') ||
-           value.includes('legendary') ||
-           value.includes('laser');
+  const special = attributes.filter(a => {
+    const v = (a.value || '').toLowerCase();
+    return v.includes('gold') || v.includes('diamond') || v.includes('legendary') || v.includes('laser');
   });
-
-  if (rareTraits.length >= 3) return 'legendary';
-  if (rareTraits.length >= 1) return 'rare';
-
+  if (special.length >= 3) return 'legendary';
+  if (special.length >= 1) return 'rare';
   return 'common';
 }
+
+export const RARITY_LABEL: Record<Rarity, string> = {
+  common:    'Common',
+  rare:      'Rare',
+  legendary: 'Legendary',
+};
+
+export const RARITY_ICON: Record<Rarity, string> = {
+  common:    '◆',
+  rare:      '★',
+  legendary: '◈',
+};
+
+// ── Skeleton card ────────────────────────────────────────────────────────────
+
+function SkeletonCard() {
+  return (
+    <div className="skeleton aspect-square" aria-hidden="true" />
+  );
+}
+
+// ── Filter tab ───────────────────────────────────────────────────────────────
+
+type Filter = 'all' | Rarity;
+
+const FILTERS: { value: Filter; label: string }[] = [
+  { value: 'all',       label: 'All' },
+  { value: 'common',    label: 'Common' },
+  { value: 'rare',      label: 'Rare' },
+  { value: 'legendary', label: 'Legendary' },
+];
+
+const FILTER_ACTIVE: Record<Filter, string> = {
+  all:       'bg-gk-purple text-white shadow-gk-purple',
+  common:    'bg-gk-common/20 text-blue-300 border border-gk-common/40',
+  rare:      'bg-gk-rare/20 text-purple-300 border border-gk-rare/40',
+  legendary: 'bg-gk-legendary/20 text-amber-300 border border-gk-legendary/40',
+};
 
 interface VaultNFTsProps {
   connection: Connection;
@@ -53,376 +81,244 @@ interface VaultNFTsProps {
 }
 
 export function VaultNFTs({ connection, onNFTSelect }: VaultNFTsProps) {
-  const [nfts, setNfts] = useState<VaultNFT[]>([]);
+  const [nfts, setNfts]     = useState<VaultNFT[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [rarityFilter, setRarityFilter] = useState<'all' | 'common' | 'rare' | 'legendary'>('all');
-  const [selectedNFT, setSelectedNFT] = useState<VaultNFT | null>(null);
-  const [loadingProgress, setLoadingProgress] = useState({ current: 0, total: 0 });
-  const [rateLimitWarning, setRateLimitWarning] = useState(false);
+  const [error, setError]   = useState<string | null>(null);
+  const [filter, setFilter] = useState<Filter>('all');
+  const [selected, setSelected] = useState<VaultNFT | null>(null);
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
 
-  const handleNFTSelect = (nft: VaultNFT) => {
-    setSelectedNFT(nft);
-    if (onNFTSelect) {
-      onNFTSelect(nft);
-    }
-  };
-
-  useEffect(() => {
-    fetchVaultNFTs();
-  }, []);
+  useEffect(() => { fetchVaultNFTs(); }, []);
 
   async function fetchVaultNFTs() {
     try {
       setLoading(true);
       setError(null);
 
-      // Get all token accounts owned by vault
       const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
         new PublicKey(VAULT_ADDRESS),
         { programId: new PublicKey('TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') }
       );
 
-      const nftList: VaultNFT[] = [];
-      const totalAccounts = tokenAccounts.value.length;
-      setLoadingProgress({ current: 0, total: totalAccounts });
+      const total = tokenAccounts.value.length;
+      setProgress({ current: 0, total });
 
-      // Process in batches to avoid rate limits
-      const BATCH_SIZE = 3; // Very conservative to avoid 429s
-      const DELAY_MS = 3000; // 3 seconds between batches
-      let consecutiveErrors = 0;
+      const result: VaultNFT[] = [];
+      const BATCH = 3;
+      const DELAY = 3000;
+      let errors = 0;
 
-      for (let i = 0; i < totalAccounts; i += BATCH_SIZE) {
-        const batch = tokenAccounts.value.slice(i, i + BATCH_SIZE);
+      for (let i = 0; i < total; i += BATCH) {
+        const batch = tokenAccounts.value.slice(i, i + BATCH);
 
-        await Promise.all(
-          batch.map(async ({ account }) => {
-            const data = account.data.parsed.info;
+        await Promise.all(batch.map(async ({ account }) => {
+          const info = account.data.parsed.info;
+          if (info.tokenAmount.decimals !== 0 || info.tokenAmount.uiAmount !== 1) return;
 
-            // Only include NFTs (amount = 1, decimals = 0)
-            if (data.tokenAmount.decimals === 0 && data.tokenAmount.uiAmount === 1) {
-              try {
-                // Fetch metadata
-                const mintPubkey = new PublicKey(data.mint);
-                const metadataPDA = await getMetadataPDA(mintPubkey);
+          try {
+            const mint = new PublicKey(info.mint);
+            const [metaPDA] = await PublicKey.findProgramAddress(
+              [Buffer.from('metadata'), new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s').toBuffer(), mint.toBuffer()],
+              new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s')
+            );
+            const metaAccount = await connection.getAccountInfo(metaPDA).catch(() => null);
+            if (!metaAccount) return;
 
-                let metadataAccount;
-                try {
-                  metadataAccount = await connection.getAccountInfo(metadataPDA);
-                } catch (rpcError: any) {
-                  // Detect rate limiting
-                  if (rpcError.message?.includes('429') || rpcError.code === 429) {
-                    consecutiveErrors++;
-                    setRateLimitWarning(true);
-                    console.warn(`Rate limit hit (429). Consecutive errors: ${consecutiveErrors}`);
-                  }
-                  throw rpcError;
-                }
-
-                if (metadataAccount) {
-                  // Parse metadata to get URI
-                  const metadata = parseMetadata(metadataAccount.data);
-
-                  // Fetch off-chain metadata JSON via API route (bypasses CORS)
-                  let imageUrl = '';
-                  let nftName = metadata.name || `GhostKid #${nftList.length + 1}`;
-
-                  if (metadata.uri) {
-                    try {
-                      const response = await fetch(`/api/metadata?url=${encodeURIComponent(metadata.uri)}`);
-                      if (response.ok) {
-                        const json = await response.json();
-                        imageUrl = json.image || '';
-                        nftName = json.name || nftName;
-                        const attributes = json.attributes || [];
-                        const rarity = determineRarity(attributes);
-
-                        nftList.push({
-                          mint: data.mint,
-                          name: nftName,
-                          image: imageUrl,
-                          rarity,
-                          attributes
-                        });
-                      }
-                    } catch (err) {
-                      console.error(`Error fetching metadata for ${data.mint}:`, err);
-                    }
-                  } else {
-                    // No URI, add with default rarity
-                    nftList.push({
-                      mint: data.mint,
-                      name: nftName,
-                      image: imageUrl,
-                      rarity: 'common',
-                      attributes: []
-                    });
-                  }
-                }
-              } catch (err) {
-                console.error('Error processing NFT:', err);
-              }
+            const parsed = parseMetadata(metaAccount.data);
+            if (!parsed.uri) {
+              result.push({ mint: info.mint, name: parsed.name || 'GhostKid NFT', image: '', rarity: 'common', attributes: [] });
+              return;
             }
-          })
-        );
 
-        const processed = i + batch.length;
-        setLoadingProgress({ current: processed, total: totalAccounts });
-        setNfts([...nftList]); // Update UI progressively
+            const resp = await fetch(`/api/metadata?url=${encodeURIComponent(parsed.uri)}`);
+            if (!resp.ok) return;
+            const json = await resp.json();
+            result.push({
+              mint: info.mint,
+              name: json.name || parsed.name || 'GhostKid NFT',
+              image: json.image || '',
+              rarity: rarityFromAttributes(json.attributes || []),
+              attributes: json.attributes || [],
+            });
+          } catch { /* skip failed entries silently */ }
+        }));
 
-        // Add delay between batches to avoid rate limits
-        if (i + BATCH_SIZE < totalAccounts) {
-          // Exponential backoff if we're hitting errors
-          const backoffMultiplier = Math.min(Math.pow(1.5, consecutiveErrors), 5);
-          const delayWithBackoff = DELAY_MS * backoffMultiplier;
+        setProgress({ current: Math.min(i + BATCH, total), total });
+        setNfts([...result]);
 
-          console.log(`Waiting ${delayWithBackoff}ms before next batch (backoff: ${backoffMultiplier.toFixed(1)}x)`);
-          await new Promise(resolve => setTimeout(resolve, delayWithBackoff));
-
-          // Reset consecutive errors if we had a successful batch
-          consecutiveErrors = 0;
+        if (i + BATCH < total) {
+          const backoff = Math.min(Math.pow(1.5, errors), 5);
+          await new Promise(r => setTimeout(r, DELAY * backoff));
+          errors = 0;
         }
       }
 
-      setNfts(nftList);
-    } catch (err: any) {
-      console.error('Error fetching vault NFTs:', err);
-      setError(err.message);
+      setNfts(result);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load vault');
     } finally {
       setLoading(false);
     }
   }
 
-  if (loading && nfts.length === 0) {
-    return (
-      <div className="bg-gray-800/50 rounded-lg p-8 text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-400 mx-auto mb-4"></div>
-        <p className="text-gray-400">Loading vault NFTs...</p>
-        {loadingProgress.total > 0 && (
-          <div className="mt-4">
-            <div className="w-full bg-gray-700 rounded-full h-2 mb-2">
-              <div
-                className="bg-purple-500 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${(loadingProgress.current / loadingProgress.total) * 100}%` }}
-              ></div>
-            </div>
-            <p className="text-sm text-gray-500">
-              {loadingProgress.current} / {loadingProgress.total} accounts processed
-            </p>
-          </div>
-        )}
-      </div>
-    );
+  function handleSelect(nft: VaultNFT) {
+    const next = selected?.mint === nft.mint ? null : nft;
+    setSelected(next);
+    onNFTSelect?.(next);
   }
 
-  if (error) {
-    return (
-      <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-6">
-        <h3 className="text-red-400 font-bold mb-2">Error Loading Vault</h3>
-        <p className="text-sm text-gray-400">{error}</p>
-        <button
-          onClick={fetchVaultNFTs}
-          className="mt-4 px-4 py-2 bg-red-500 hover:bg-red-600 rounded-lg text-sm"
-        >
-          Retry
-        </button>
-      </div>
-    );
-  }
+  const displayed = filter === 'all' ? nfts : nfts.filter(n => n.rarity === filter);
 
-  const filteredNFTs = rarityFilter === 'all'
-    ? nfts
-    : nfts.filter(nft => nft.rarity === rarityFilter);
-
-  const rarityCounts = {
-    common: nfts.filter(n => n.rarity === 'common').length,
-    rare: nfts.filter(n => n.rarity === 'rare').length,
+  const counts = {
+    common:    nfts.filter(n => n.rarity === 'common').length,
+    rare:      nfts.filter(n => n.rarity === 'rare').length,
     legendary: nfts.filter(n => n.rarity === 'legendary').length,
   };
 
+  // ── Error state ────────────────────────────────────────────────────────────
+  if (error && nfts.length === 0) {
+    return (
+      <div className="gk-panel p-8 text-center animate-fade-up">
+        <p className="text-gk-error font-semibold mb-2">Failed to load vault</p>
+        <p className="text-sm text-gk-muted mb-5">{error}</p>
+        <button
+          onClick={fetchVaultNFTs}
+          className="px-5 py-2 rounded-lg bg-gk-surface-3 hover:bg-gk-surface-2 border border-gk-border-bright text-sm font-medium transition-all"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div>
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">Available in Vault</h2>
-        <div className="bg-purple-900/30 px-4 py-2 rounded-lg">
-          <span className="text-purple-400 font-bold">{nfts.length}</span>
-          <span className="text-gray-400 ml-2">NFTs</span>
-        </div>
-      </div>
+    <div className="animate-fade-up">
+      {/* Header row */}
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
 
-      {/* Rate Limit Warning */}
-      {rateLimitWarning && (
-        <div className="bg-yellow-900/30 border border-yellow-500/50 rounded-lg p-4 mb-6">
-          <p className="text-yellow-400 font-bold mb-2">⚠️ RPC Rate Limit Detected</p>
-          <p className="text-sm text-gray-400 mb-2">
-            Loading is slower to avoid hitting rate limits. For faster loading:
-          </p>
-          <ul className="text-xs text-gray-400 list-disc list-inside space-y-1">
-            <li>Set NEXT_PUBLIC_RPC_ENDPOINT in your .env.local to use a paid RPC</li>
-            <li>Or wait - we're using exponential backoff (3-15 seconds between batches)</li>
-          </ul>
-        </div>
-      )}
-
-      {/* Rarity Filter */}
-      <div className="flex gap-2 mb-6 flex-wrap">
-        <button
-          onClick={() => setRarityFilter('all')}
-          className={`px-4 py-2 rounded-lg font-medium transition-all ${
-            rarityFilter === 'all'
-              ? 'bg-purple-600 text-white'
-              : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700'
-          }`}
-        >
-          All ({nfts.length})
-        </button>
-        <button
-          onClick={() => setRarityFilter('common')}
-          className={`px-4 py-2 rounded-lg font-medium transition-all ${
-            rarityFilter === 'common'
-              ? 'bg-gradient-to-r from-blue-500 to-cyan-500 text-white'
-              : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700'
-          }`}
-        >
-          🔵 Common ({rarityCounts.common})
-        </button>
-        <button
-          onClick={() => setRarityFilter('rare')}
-          className={`px-4 py-2 rounded-lg font-medium transition-all ${
-            rarityFilter === 'rare'
-              ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
-              : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700'
-          }`}
-        >
-          ⭐ Rare ({rarityCounts.rare})
-        </button>
-        <button
-          onClick={() => setRarityFilter('legendary')}
-          className={`px-4 py-2 rounded-lg font-medium transition-all ${
-            rarityFilter === 'legendary'
-              ? 'bg-gradient-to-r from-yellow-500 to-orange-500 text-white'
-              : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700'
-          }`}
-        >
-          💎 Legendary ({rarityCounts.legendary})
-        </button>
-      </div>
-
-      {filteredNFTs.length === 0 ? (
-        <div className="bg-gray-800/50 rounded-lg p-12 text-center">
-          <p className="text-gray-400">No {rarityFilter !== 'all' ? rarityFilter : ''} NFTs currently in vault</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          {filteredNFTs.map((nft, i) => (
-            <div
-              key={nft.mint}
-              onClick={() => handleNFTSelect(nft)}
-              className={`bg-gray-800/50 rounded-lg overflow-hidden border-2 transition-all cursor-pointer ${
-                selectedNFT?.mint === nft.mint
-                  ? 'border-purple-500 ring-2 ring-purple-500 ring-offset-2 ring-offset-gray-900'
-                  : 'border-gray-700 hover:border-purple-400'
+        {/* Filter tabs */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {FILTERS.map(f => (
+            <button
+              key={f.value}
+              onClick={() => setFilter(f.value)}
+              className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                filter === f.value
+                  ? FILTER_ACTIVE[f.value]
+                  : 'bg-gk-surface-2 text-gk-muted hover:text-white hover:bg-gk-surface-3 border border-gk-border'
               }`}
             >
-              <div className="aspect-square bg-gray-900 relative">
-                {nft.image && (
-                  <img
-                    src={nft.image}
-                    alt={nft.name}
-                    className="w-full h-full object-cover"
-                    loading="lazy"
-                  />
-                )}
-                {/* Rarity badge */}
-                <div className={`absolute top-2 right-2 px-2 py-1 rounded text-xs font-bold ${
-                  nft.rarity === 'legendary' ? 'bg-yellow-500/90 text-black' :
-                  nft.rarity === 'rare' ? 'bg-purple-500/90 text-white' :
-                  'bg-blue-500/90 text-white'
-                }`}>
-                  {nft.rarity === 'legendary' ? '💎' : nft.rarity === 'rare' ? '⭐' : '🔵'}
-                </div>
-              </div>
-              <div className="p-2">
-                <p className="text-xs text-gray-400 truncate">{nft.name}</p>
-              </div>
-            </div>
+              {f.label}
+              {f.value !== 'all' && (
+                <span className="ml-1.5 opacity-60">{counts[f.value as Rarity]}</span>
+              )}
+              {f.value === 'all' && (
+                <span className="ml-1.5 opacity-60">{nfts.length}</span>
+              )}
+            </button>
           ))}
         </div>
-      )}
 
-      {/* Progressive Loading Indicator */}
-      {loading && nfts.length > 0 && (
-        <div className="mt-6 bg-gray-800/50 rounded-lg p-4">
-          <div className="flex items-center gap-3">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-400"></div>
-            <div className="flex-1">
-              <p className="text-sm text-gray-400">Loading more NFTs...</p>
-              {loadingProgress.total > 0 && (
-                <div className="mt-2">
-                  <div className="w-full bg-gray-700 rounded-full h-1.5">
-                    <div
-                      className="bg-purple-500 h-1.5 rounded-full transition-all duration-300"
-                      style={{ width: `${(loadingProgress.current / loadingProgress.total) * 100}%` }}
-                    ></div>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-1">
-                    {nfts.length} loaded • {loadingProgress.current} / {loadingProgress.total} processed
-                  </p>
-                </div>
-              )}
+        {/* Loading progress */}
+        {loading && progress.total > 0 && (
+          <div className="flex items-center gap-2 text-xs text-gk-muted">
+            <div className="w-24 h-1 bg-gk-surface-3 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gk-purple rounded-full transition-all duration-300"
+                style={{ width: `${(progress.current / progress.total) * 100}%` }}
+              />
             </div>
+            <span>{progress.current}/{progress.total}</span>
           </div>
+        )}
+      </div>
+
+      {/* Grid */}
+      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3">
+        {/* Real NFTs */}
+        {displayed.map(nft => (
+          <button
+            key={nft.mint}
+            onClick={() => handleSelect(nft)}
+            className={`nft-card selected-${nft.rarity} ${selected?.mint === nft.mint ? `selected-${nft.rarity}` : ''}`}
+            aria-label={`${nft.name} – ${RARITY_LABEL[nft.rarity]}${selected?.mint === nft.mint ? ' (selected)' : ''}`}
+            aria-pressed={selected?.mint === nft.mint}
+          >
+            {nft.image ? (
+              <img src={nft.image} alt={nft.name} className="w-full h-full object-cover" loading="lazy" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-3xl text-gk-dim">👻</div>
+            )}
+            <span className={`rarity-badge ${nft.rarity}`}>
+              {RARITY_ICON[nft.rarity]}
+            </span>
+            {selected?.mint === nft.mint && (
+              <div className="absolute inset-0 bg-gk-purple/10 flex items-end justify-center pb-1.5 pointer-events-none">
+                <span className="text-[10px] font-bold text-white bg-gk-purple px-2 py-0.5 rounded-full">
+                  Selected
+                </span>
+              </div>
+            )}
+          </button>
+        ))}
+
+        {/* Skeleton placeholders while loading */}
+        {loading && Array.from({ length: Math.max(0, 12 - displayed.length) }).map((_, i) => (
+          <SkeletonCard key={`sk-${i}`} />
+        ))}
+      </div>
+
+      {/* Empty state */}
+      {!loading && displayed.length === 0 && (
+        <div className="gk-panel p-12 text-center mt-4">
+          <p className="text-4xl mb-3">👻</p>
+          <p className="text-gk-muted">
+            {filter === 'all'
+              ? 'No NFTs in vault'
+              : `No ${filter} NFTs in vault right now`}
+          </p>
         </div>
       )}
 
-      {/* Selected NFT Info */}
-      {selectedNFT && (
-        <div className="mt-6 bg-purple-900/20 border border-purple-500/30 rounded-lg p-4">
-          <p className="text-sm text-gray-400 mb-2">Selected for unwrap:</p>
-          <p className="text-lg font-bold text-purple-400">{selectedNFT.name}</p>
-          <p className="text-sm text-gray-500">Mint: {selectedNFT.mint.slice(0, 8)}...</p>
+      {/* Selected NFT confirmation strip */}
+      {selected && (
+        <div className="mt-4 flex items-center gap-3 px-4 py-3 rounded-xl bg-gk-surface-2 border border-gk-border-accent animate-fade-up">
+          {selected.image && (
+            <img src={selected.image} alt={selected.name} className="w-9 h-9 rounded-lg object-cover flex-shrink-0" />
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold truncate">{selected.name}</p>
+            <p className="text-xs text-gk-muted">{selected.mint.slice(0,6)}…{selected.mint.slice(-4)}</p>
+          </div>
+          <span className={`rarity-pill ${selected.rarity}`}>
+            {RARITY_ICON[selected.rarity]} {RARITY_LABEL[selected.rarity]}
+          </span>
+          <button
+            onClick={() => { setSelected(null); onNFTSelect?.(null); }}
+            className="text-gk-dim hover:text-gk-muted transition-colors ml-1 text-lg leading-none"
+            aria-label="Deselect NFT"
+          >
+            ×
+          </button>
         </div>
       )}
     </div>
   );
 }
 
-async function getMetadataPDA(mint: PublicKey): Promise<PublicKey> {
-  const [pda] = await PublicKey.findProgramAddress(
-    [
-      Buffer.from('metadata'),
-      new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s').toBuffer(),
-      mint.toBuffer(),
-    ],
-    new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s')
-  );
-  return pda;
-}
+// ── Metadata parser ──────────────────────────────────────────────────────────
 
 function parseMetadata(data: Buffer): { name: string; uri?: string } {
-  // Parse Metaplex metadata structure
-  // Reference: https://docs.metaplex.com/programs/token-metadata/accounts
   try {
-    let offset = 1 + 32 + 32; // Skip: key (1) + update_authority (32) + mint (32)
-
-    // Read name (string with 4-byte length prefix)
-    const nameLen = data.readUInt32LE(offset);
-    offset += 4;
+    let offset = 1 + 32 + 32;
+    const nameLen = data.readUInt32LE(offset); offset += 4;
     const name = data.slice(offset, offset + nameLen).toString('utf8').replace(/\0/g, '');
     offset += nameLen;
-
-    // Read symbol (string with 4-byte length prefix)
-    const symbolLen = data.readUInt32LE(offset);
-    offset += 4 + symbolLen;
-
-    // Read URI (string with 4-byte length prefix)
-    const uriLen = data.readUInt32LE(offset);
-    offset += 4;
+    const symLen = data.readUInt32LE(offset); offset += 4 + symLen;
+    const uriLen = data.readUInt32LE(offset); offset += 4;
     const uri = data.slice(offset, offset + uriLen).toString('utf8').replace(/\0/g, '');
-
     return { name: name || 'GhostKid NFT', uri: uri || undefined };
-  } catch (err) {
-    console.error('Error parsing metadata:', err);
+  } catch {
     return { name: 'GhostKid NFT' };
   }
 }

@@ -2,7 +2,357 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Design Tokens ─────────────────────────────────────────────────── */
+:root {
+  --gk-bg:           #07071a;
+  --gk-surface:      #0d0d24;
+  --gk-surface-2:    #13132e;
+  --gk-surface-3:    #1a1a38;
+  --gk-border:       rgba(255, 255, 255, 0.06);
+  --gk-border-bright:rgba(255, 255, 255, 0.11);
+  --gk-border-accent:rgba(168, 85, 247, 0.55);
+
+  --gk-purple:       #9333ea;
+  --gk-purple-light: #a855f7;
+  --gk-purple-dim:   rgba(147, 51, 234, 0.18);
+  --gk-purple-glow:  rgba(147, 51, 234, 0.32);
+
+  --gk-common:       #3b82f6;
+  --gk-common-dim:   rgba(59, 130, 246, 0.18);
+  --gk-rare:         #a855f7;
+  --gk-rare-dim:     rgba(168, 85, 247, 0.18);
+  --gk-legendary:    #f59e0b;
+  --gk-legendary-dim:rgba(245, 158, 11, 0.18);
+
+  --gk-success:      #10b981;
+  --gk-error:        #ef4444;
+  --gk-text:         #f0f0ff;
+  --gk-muted:        #8b8baa;
+  --gk-dim:          #4a4a6a;
+}
+
+/* ─── Base ──────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
 body {
   margin: 0;
   padding: 0;
+  background: var(--gk-bg);
+  color: var(--gk-text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Scrollbar ─────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--gk-surface); }
+::-webkit-scrollbar-thumb {
+  background: var(--gk-surface-3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--gk-dim); }
+
+/* ─── Wallet Adapter – Full Override ────────────────────────────────── */
+
+/* The connect / disconnect trigger button */
+.wallet-adapter-button {
+  background: linear-gradient(135deg, #6d28d9 0%, #9333ea 100%) !important;
+  border: 1px solid rgba(168, 85, 247, 0.4) !important;
+  border-radius: 10px !important;
+  color: #fff !important;
+  font-family: inherit !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  height: auto !important;
+  padding: 10px 18px !important;
+  letter-spacing: 0.01em !important;
+  transition: all 0.2s ease !important;
+  box-shadow: 0 0 18px rgba(147, 51, 234, 0.2) !important;
+  white-space: nowrap !important;
+  cursor: pointer !important;
+}
+.wallet-adapter-button:not([disabled]):hover {
+  background: linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%) !important;
+  box-shadow: 0 0 30px rgba(147, 51, 234, 0.45) !important;
+  transform: translateY(-1px) !important;
+}
+.wallet-adapter-button:not([disabled]):active {
+  transform: translateY(0) !important;
+  box-shadow: 0 0 14px rgba(147, 51, 234, 0.3) !important;
+}
+.wallet-adapter-button[disabled] {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+  transform: none !important;
+}
+.wallet-adapter-button-start-icon {
+  width: 20px !important;
+  height: 20px !important;
+  margin-right: 8px !important;
+}
+
+/* Backdrop */
+.wallet-adapter-modal-overlay,
+.wallet-adapter-modal {
+  background: rgba(4, 4, 16, 0.82) !important;
+  backdrop-filter: blur(14px) !important;
+}
+
+/* Card / wrapper */
+.wallet-adapter-modal-wrapper {
+  background: var(--gk-surface) !important;
+  border: 1px solid var(--gk-border-bright) !important;
+  border-radius: 20px !important;
+  padding: 28px !important;
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.7),
+    0 0 60px rgba(147, 51, 234, 0.08) !important;
+  max-width: 400px !important;
+  width: 100% !important;
+}
+
+/* Title */
+.wallet-adapter-modal-title {
+  color: var(--gk-text) !important;
+  font-size: 1.2rem !important;
+  font-weight: 700 !important;
+  margin-bottom: 20px !important;
+  letter-spacing: -0.01em !important;
+}
+
+/* Subtitle / helper text */
+.wallet-adapter-modal-middle-button {
+  color: var(--gk-muted) !important;
+  font-size: 0.8125rem !important;
+}
+
+/* Wallet list */
+.wallet-adapter-modal-list {
+  list-style: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 8px !important;
+}
+.wallet-adapter-modal-list li { padding: 0 !important; }
+
+/* Individual wallet row */
+.wallet-adapter-modal-list li button,
+.wallet-adapter-modal-list-item {
+  background: var(--gk-surface-2) !important;
+  border: 1px solid var(--gk-border) !important;
+  border-radius: 12px !important;
+  color: var(--gk-text) !important;
+  font-family: inherit !important;
+  font-size: 0.9375rem !important;
+  font-weight: 500 !important;
+  padding: 13px 16px !important;
+  width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 12px !important;
+  transition: all 0.15s ease !important;
+  cursor: pointer !important;
+  text-align: left !important;
+}
+.wallet-adapter-modal-list li button:hover,
+.wallet-adapter-modal-list-item:hover {
+  background: var(--gk-surface-3) !important;
+  border-color: var(--gk-border-accent) !important;
+  transform: translateX(3px) !important;
+}
+
+/* Wallet icon inside row */
+.wallet-adapter-modal-list li button img,
+.wallet-adapter-modal-list-item img {
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 6px !important;
+}
+
+/* Close button */
+.wallet-adapter-modal-button-close {
+  background: var(--gk-surface-2) !important;
+  border: 1px solid var(--gk-border) !important;
+  border-radius: 8px !important;
+  color: var(--gk-muted) !important;
+  width: 34px !important;
+  height: 34px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+  top: 20px !important;
+  right: 20px !important;
+}
+.wallet-adapter-modal-button-close:hover {
+  background: var(--gk-surface-3) !important;
+  color: var(--gk-text) !important;
+  border-color: var(--gk-border-bright) !important;
+}
+.wallet-adapter-modal-button-close svg {
+  width: 14px !important;
+  height: 14px !important;
+}
+
+/* ─── Component Utilities ───────────────────────────────────────────── */
+
+/* NFT cards */
+.nft-card {
+  position: relative;
+  border-radius: 11px;
+  overflow: hidden;
+  border: 2px solid var(--gk-border);
+  background: var(--gk-surface-2);
+  cursor: pointer;
+  transition: all 0.18s cubic-bezier(0.34, 1.4, 0.64, 1);
+  aspect-ratio: 1 / 1;
+}
+.nft-card:hover {
+  border-color: rgba(168, 85, 247, 0.45);
+  transform: translateY(-3px) scale(1.03);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.5);
+}
+.nft-card.selected-common {
+  border-color: var(--gk-common);
+  box-shadow: 0 0 0 3px var(--gk-common-dim), 0 10px 28px rgba(0,0,0,0.5);
+  transform: translateY(-3px) scale(1.03);
+}
+.nft-card.selected-rare {
+  border-color: var(--gk-rare);
+  box-shadow: 0 0 0 3px var(--gk-rare-dim), 0 10px 28px rgba(0,0,0,0.5);
+  transform: translateY(-3px) scale(1.03);
+}
+.nft-card.selected-legendary {
+  border-color: var(--gk-legendary);
+  box-shadow: 0 0 0 3px var(--gk-legendary-dim), 0 10px 28px rgba(0,0,0,0.5);
+  transform: translateY(-3px) scale(1.03);
+  animation: legendaryGlow 2s ease-in-out infinite;
+}
+
+@keyframes legendaryGlow {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(245,158,11,0.18), 0 10px 28px rgba(0,0,0,0.5); }
+  50%       { box-shadow: 0 0 0 3px rgba(245,158,11,0.35), 0 10px 28px rgba(0,0,0,0.5), 0 0 24px rgba(245,158,11,0.2); }
+}
+
+/* Skeleton shimmer */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--gk-surface-2) 25%,
+    var(--gk-surface-3) 50%,
+    var(--gk-surface-2) 75%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.6s infinite linear;
+  border-radius: 11px;
+  border: 2px solid var(--gk-border);
+}
+
+@keyframes shimmer {
+  0%   { background-position: -800px 0; }
+  100% { background-position:  800px 0; }
+}
+
+/* Rarity badge (absolute overlay on card) */
+.rarity-badge {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  padding: 3px 7px;
+  border-radius: 6px;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  pointer-events: none;
+  line-height: 1.4;
+}
+.rarity-badge.common    { background: rgba(59, 130, 246, 0.88); color: #fff; }
+.rarity-badge.rare      { background: rgba(168, 85, 247, 0.88); color: #fff; }
+.rarity-badge.legendary { background: rgba(245, 158, 11, 0.92); color: #000; font-weight: 900; }
+
+/* Rarity pill (inline) */
+.rarity-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.rarity-pill.common    { background: rgba(59,130,246,0.15);  color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+.rarity-pill.rare      { background: rgba(168,85,247,0.15);  color: #c084fc; border: 1px solid rgba(168,85,247,0.3); }
+.rarity-pill.legendary { background: rgba(245,158,11,0.15);  color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+
+/* Step indicator circles */
+.step-dot {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+}
+.step-dot.pending  { background: var(--gk-surface-3); border: 1.5px solid var(--gk-border-bright); color: var(--gk-muted); }
+.step-dot.active   { background: var(--gk-purple); color: #fff; box-shadow: 0 0 16px var(--gk-purple-glow); }
+.step-dot.complete { background: var(--gk-success); color: #fff; box-shadow: 0 0 16px rgba(16,185,129,0.35); }
+
+/* Fade-up entry */
+.animate-fade-up { animation: fadeUp 0.4s ease both; }
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Glass panel */
+.gk-panel {
+  background: var(--gk-surface);
+  border: 1px solid var(--gk-border);
+  border-radius: 18px;
+}
+.gk-panel-inner {
+  background: var(--gk-surface-2);
+  border: 1px solid var(--gk-border);
+  border-radius: 14px;
+}
+
+/* Primary button */
+.btn-swap {
+  width: 100%;
+  padding: 15px 24px;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.btn-swap.ready {
+  background: linear-gradient(135deg, #059669 0%, #0d9488 100%);
+  color: #fff;
+  box-shadow: 0 0 22px rgba(16, 185, 129, 0.25);
+}
+.btn-swap.ready:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 28px rgba(16, 185, 129, 0.4);
+}
+.btn-swap.ready:active { transform: translateY(0); }
+.btn-swap.disabled {
+  background: var(--gk-surface-3);
+  color: var(--gk-dim);
+  cursor: not-allowed;
 }

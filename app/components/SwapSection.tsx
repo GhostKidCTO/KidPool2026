@@ -2,17 +2,94 @@
 
 import { useState, useEffect } from 'react';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { Connection, PublicKey, Transaction } from '@solana/web3.js';
+import { Connection, Transaction } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
 import type { VaultNFT } from './VaultNFTs';
+import { rarityFromAttributes, RARITY_LABEL, RARITY_ICON, type Rarity } from './VaultNFTs';
 
 interface UserNFT {
   mint: string;
   name: string;
   image: string;
-  rarity: 'common' | 'rare' | 'legendary';
+  rarity: Rarity;
 }
 
-const GHOST_KID_COLLECTION = 'FSw4cZhK5pMmhEDenDpa3CauJ9kLt5agr2U1oQxaH2cv';
+const COLLECTION = 'FSw4cZhK5pMmhEDenDpa3CauJ9kLt5agr2U1oQxaH2cv';
+
+// ── NFT deal card (used in both "giving" and "receiving" slots) ──────────────
+
+function DealSlot({
+  nft,
+  label,
+  placeholder,
+  emptyIcon,
+}: {
+  nft: { name: string; image: string; rarity: Rarity } | null;
+  label: string;
+  placeholder: string;
+  emptyIcon?: string;
+}) {
+  return (
+    <div className="flex-1 min-w-0">
+      <p className="text-xs font-semibold uppercase tracking-widest text-gk-muted mb-2">{label}</p>
+      {nft ? (
+        <div className="gk-panel-inner p-3 animate-fade-up">
+          <div className="aspect-square w-full rounded-lg overflow-hidden bg-gk-surface mb-3">
+            {nft.image ? (
+              <img src={nft.image} alt={nft.name} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-5xl">👻</div>
+            )}
+          </div>
+          <p className="text-sm font-semibold truncate mb-1.5">{nft.name}</p>
+          <span className={`rarity-pill ${nft.rarity}`}>
+            {RARITY_ICON[nft.rarity]} {RARITY_LABEL[nft.rarity]}
+          </span>
+        </div>
+      ) : (
+        <div className="gk-panel-inner p-6 flex flex-col items-center justify-center gap-2 aspect-square opacity-50">
+          <span className="text-3xl">{emptyIcon || '?'}</span>
+          <p className="text-xs text-gk-muted text-center leading-snug">{placeholder}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Rarity match indicator ───────────────────────────────────────────────────
+
+function MatchIndicator({ a, b }: { a: Rarity | null; b: Rarity | null }) {
+  if (!a || !b) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-1 px-3 pt-6">
+        <span className="text-2xl text-gk-dim">⇄</span>
+        <span className="text-[10px] text-gk-dim uppercase tracking-wider">Same<br/>rarity</span>
+      </div>
+    );
+  }
+  const match = a === b;
+  return (
+    <div className="flex flex-col items-center justify-center gap-1 px-3 pt-6 animate-fade-up">
+      {match ? (
+        <>
+          <span className="text-2xl text-gk-success">✓</span>
+          <span className="text-[10px] text-gk-success uppercase tracking-wider font-bold text-center">
+            Match
+          </span>
+        </>
+      ) : (
+        <>
+          <span className="text-2xl text-gk-error">✕</span>
+          <span className="text-[10px] text-gk-error uppercase tracking-wider font-bold text-center">
+            Mismatch
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ───────────────────────────────────────────────────────────
 
 export function SwapSection({
   connection,
@@ -25,311 +102,265 @@ export function SwapSection({
 }) {
   const { publicKey, signTransaction } = useWallet();
   const [userNFTs, setUserNFTs] = useState<UserNFT[]>([]);
-  const [selectedUserNFT, setSelectedUserNFT] = useState<UserNFT | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [myNFT, setMyNFT]       = useState<UserNFT | null>(null);
+  const [loading, setLoading]   = useState(false);
   const [swapping, setSwapping] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [error, setError]       = useState<string | null>(null);
+  const [success, setSuccess]   = useState<string | null>(null);
 
   useEffect(() => {
-    if (publicKey) {
-      fetchUserNFTs();
-    } else {
-      setUserNFTs([]);
-      setSelectedUserNFT(null);
-    }
+    if (publicKey) fetchUserNFTs();
+    else { setUserNFTs([]); setMyNFT(null); }
   }, [publicKey]);
 
-  // Clear status when vault selection changes
   useEffect(() => {
     setError(null);
     setSuccess(null);
-  }, [selectedVaultNFT]);
+  }, [selectedVaultNFT, myNFT]);
 
   async function fetchUserNFTs() {
     if (!publicKey) return;
     try {
       setLoading(true);
-      setError(null);
-
-      const rpcEndpoint = process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com';
-      const response = await fetch(rpcEndpoint, {
+      const rpc = process.env.NEXT_PUBLIC_RPC_ENDPOINT || 'https://api.mainnet-beta.solana.com';
+      const res = await fetch(rpc, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 'gk-swap-user',
-          method: 'getAssetsByOwner',
+          jsonrpc: '2.0', id: 'gk-swap', method: 'getAssetsByOwner',
           params: {
             ownerAddress: publicKey.toBase58(),
-            page: 1,
-            limit: 1000,
+            page: 1, limit: 1000,
             displayOptions: { showFungible: false, showNativeBalance: false },
           },
         }),
       });
-
-      const data = await response.json();
+      const data = await res.json();
       const assets: any[] = data.result?.items || [];
-
-      const ghostKidAssets = assets.filter((asset: any) =>
-        asset.grouping?.some(
-          (g: any) => g.group_key === 'collection' && g.group_value === GHOST_KID_COLLECTION
-        )
-      );
-
-      const nfts: UserNFT[] = ghostKidAssets.map((asset: any) => {
-        const attributes: any[] = asset.content?.metadata?.attributes || [];
-        const rarityAttr = attributes.find((attr: any) =>
-          attr.trait_type?.toLowerCase() === 'rarity' ||
-          attr.trait_type?.toLowerCase() === 'tier'
-        );
-        let rarity: 'common' | 'rare' | 'legendary' = 'common';
-        if (rarityAttr) {
-          const v = rarityAttr.value?.toLowerCase();
-          if (v === 'legendary' || v === 'mythic') rarity = 'legendary';
-          else if (v === 'rare' || v === 'epic') rarity = 'rare';
-        }
-        const image = asset.content?.links?.image || asset.content?.files?.[0]?.uri || '';
-        const name = asset.content?.metadata?.name || `GhostKid #${asset.id?.slice(0, 4)}`;
-        return { mint: asset.id, name, image, rarity };
-      });
-
-      setUserNFTs(nfts);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to load NFTs');
+      const mine = assets
+        .filter((a: any) => a.grouping?.some((g: any) => g.group_key === 'collection' && g.group_value === COLLECTION))
+        .map((a: any) => ({
+          mint:   a.id,
+          name:   a.content?.metadata?.name || `GhostKid #${a.id.slice(0,4)}`,
+          image:  a.content?.links?.image || a.content?.files?.[0]?.uri || '',
+          rarity: rarityFromAttributes(a.content?.metadata?.attributes || []),
+        }));
+      setUserNFTs(mine);
+    } catch (e: any) {
+      setError(e?.message || 'Failed to load your NFTs');
     } finally {
       setLoading(false);
     }
   }
 
   async function handleSwap() {
-    if (!publicKey || !selectedUserNFT || !selectedVaultNFT || !signTransaction) return;
-
-    if (selectedUserNFT.rarity !== selectedVaultNFT.rarity) {
-      setError('Rarity mismatch — you can only swap for a vault NFT of the same rarity tier.');
+    if (!publicKey || !myNFT || !selectedVaultNFT || !signTransaction) return;
+    if (myNFT.rarity !== selectedVaultNFT.rarity) {
+      setError('Rarity mismatch — select a vault NFT of the same tier.');
       return;
     }
-
     try {
       setSwapping(true);
       setError(null);
       setSuccess(null);
 
-      const resp = await fetch('/api/swap', {
+      const res = await fetch('/api/swap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userMintAddress: selectedUserNFT.mint,
+          userMintAddress:  myNFT.mint,
           vaultMintAddress: selectedVaultNFT.mint,
-          userAddress: publicKey.toBase58(),
+          userAddress:      publicKey.toBase58(),
         }),
       });
 
-      if (!resp.ok) {
-        const err = await resp.json().catch(() => ({ error: 'Server error' }));
-        throw new Error(err.error || `Server error ${resp.status}`);
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({ error: 'Server error' }));
+        throw new Error(e.error || `Server error ${res.status}`);
       }
 
-      const { transaction: txBase64 } = await resp.json();
-      const transaction = Transaction.from(Buffer.from(txBase64, 'base64'));
-
-      const signed = await signTransaction(transaction);
-      const signature = await connection.sendRawTransaction(signed.serialize(), {
-        skipPreflight: true,
-        preflightCommitment: 'confirmed',
+      const { transaction: b64 } = await res.json();
+      const tx = Transaction.from(Buffer.from(b64, 'base64'));
+      const signed = await signTransaction(tx);
+      const sig = await connection.sendRawTransaction(signed.serialize(), {
+        skipPreflight: true, preflightCommitment: 'confirmed',
       });
+      await connection.confirmTransaction(sig, 'confirmed');
 
-      await connection.confirmTransaction(signature, 'confirmed');
-
-      setSuccess(signature);
-      setSelectedUserNFT(null);
-      if (onSuccess) onSuccess();
+      setSuccess(sig);
+      setMyNFT(null);
+      onSuccess?.();
       fetchUserNFTs();
-    } catch (err: any) {
-      if (err?.message?.includes('User rejected') || err?.message?.includes('rejected')) {
-        setError('Transaction rejected by user');
-      } else {
-        setError(err?.message || err?.toString() || 'Unknown error');
-      }
+    } catch (e: any) {
+      const msg = e?.message || '';
+      setError(msg.includes('rejected') ? 'Transaction rejected.' : msg || 'Swap failed.');
     } finally {
       setSwapping(false);
     }
   }
 
-  const rarityIcon = (r: string) =>
-    r === 'legendary' ? '💎' : r === 'rare' ? '⭐' : '🔵';
+  const rarityMismatch = myNFT && selectedVaultNFT && myNFT.rarity !== selectedVaultNFT.rarity;
+  const canSwap = !!myNFT && !!selectedVaultNFT && !rarityMismatch && !swapping && !!publicKey;
 
-  const rarityBadgeClass = (r: string) =>
-    r === 'legendary' ? 'bg-yellow-500/90 text-black' :
-    r === 'rare' ? 'bg-purple-500/90 text-white' :
-    'bg-blue-500/90 text-white';
+  // Filter user's NFTs to same rarity as vault selection for quick discovery
+  const suggestedNFTs = selectedVaultNFT
+    ? userNFTs.filter(n => n.rarity === selectedVaultNFT.rarity)
+    : userNFTs;
 
-  const rarityMismatch =
-    selectedUserNFT && selectedVaultNFT &&
-    selectedUserNFT.rarity !== selectedVaultNFT.rarity;
-
-  const canSwap =
-    !!selectedUserNFT && !!selectedVaultNFT && !rarityMismatch && !swapping && !!publicKey;
+  const otherNFTs = selectedVaultNFT
+    ? userNFTs.filter(n => n.rarity !== selectedVaultNFT.rarity)
+    : [];
 
   return (
-    <div className="bg-gradient-to-br from-green-900/20 to-teal-900/20 rounded-lg p-8 border border-green-500/30">
-      <h2 className="text-2xl font-bold mb-2">Swap GhostKid ↔ GhostKid</h2>
-      <p className="text-gray-400 text-sm mb-6">
-        Exchange your GhostKid for one from the vault of the same rarity tier. No $KID tokens required.
-      </p>
+    <div className="gk-panel p-6 animate-fade-up">
 
-      {!publicKey ? (
-        <div className="bg-gray-800/50 rounded-lg p-8 text-center">
-          <p className="text-gray-400">Connect your wallet to swap NFTs</p>
-        </div>
-      ) : (
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* Left column: user's NFT to give up */}
-          <div>
-            <p className="text-sm font-medium text-gray-300 mb-3">Your NFT to swap away</p>
+      {/* ── Deal preview ──────────────────────────────────────────────────── */}
+      <div className="flex items-stretch gap-2 mb-6">
+        <DealSlot
+          nft={myNFT}
+          label="You give"
+          placeholder="Select from your NFTs below"
+          emptyIcon="👤"
+        />
+        <MatchIndicator
+          a={myNFT?.rarity ?? null}
+          b={selectedVaultNFT?.rarity ?? null}
+        />
+        <DealSlot
+          nft={selectedVaultNFT}
+          label="You receive"
+          placeholder="Select from vault above"
+          emptyIcon="🏦"
+        />
+      </div>
 
-            {loading ? (
-              <div className="bg-gray-800/50 rounded-lg p-6 text-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-400 mx-auto mb-2"></div>
-                <p className="text-sm text-gray-400">Loading your NFTs...</p>
-              </div>
-            ) : userNFTs.length === 0 ? (
-              <div className="bg-gray-800/50 rounded-lg p-6 text-center">
-                <p className="text-gray-400 text-sm">No GhostKid NFTs in your wallet</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-3 gap-2 max-h-64 overflow-y-auto bg-gray-800/30 rounded-lg p-2">
-                {userNFTs.map((nft) => (
-                  <button
-                    key={nft.mint}
-                    onClick={() => {
-                      setSelectedUserNFT(nft.mint === selectedUserNFT?.mint ? null : nft);
-                      setError(null);
-                      setSuccess(null);
-                    }}
-                    className={`relative aspect-square rounded-lg border-2 transition-all overflow-hidden ${
-                      selectedUserNFT?.mint === nft.mint
-                        ? 'border-green-500 ring-2 ring-green-500 scale-105'
-                        : 'border-gray-600 hover:border-green-400'
-                    } bg-gray-900`}
-                  >
-                    {nft.image ? (
-                      <img src={nft.image} alt={nft.name} className="w-full h-full object-cover" loading="lazy" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-3xl">👻</div>
-                    )}
-                    <div className="absolute top-1 right-1 text-sm">{rarityIcon(nft.rarity)}</div>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {selectedUserNFT && (
-              <div className="mt-3 bg-gray-800/50 rounded-lg p-3">
-                <p className="text-xs text-gray-400 mb-1">Giving:</p>
-                <p className="font-bold text-green-400 text-sm truncate">{selectedUserNFT.name}</p>
-                <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold mt-1 ${rarityBadgeClass(selectedUserNFT.rarity)}`}>
-                  {rarityIcon(selectedUserNFT.rarity)} {selectedUserNFT.rarity.toUpperCase()}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Right column: selected vault NFT to receive */}
-          <div>
-            <p className="text-sm font-medium text-gray-300 mb-3">Vault NFT to receive</p>
-
-            {!selectedVaultNFT ? (
-              <div className="bg-gray-800/50 rounded-lg p-6 text-center border-2 border-dashed border-gray-700 h-full flex flex-col items-center justify-center min-h-[120px]">
-                <p className="text-gray-500 text-sm">Select a vault NFT from the display above</p>
-              </div>
-            ) : (
-              <div className="bg-gray-800/50 rounded-lg p-4">
-                <div className="aspect-square max-w-[100px] mx-auto rounded-lg overflow-hidden bg-gray-900 mb-3">
-                  {selectedVaultNFT.image ? (
-                    <img src={selectedVaultNFT.image} alt={selectedVaultNFT.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-4xl">👻</div>
-                  )}
-                </div>
-                <p className="text-xs text-gray-400 mb-1 text-center">Receiving:</p>
-                <p className="font-bold text-green-400 text-sm text-center truncate">{selectedVaultNFT.name}</p>
-                <div className="flex justify-center mt-1">
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${rarityBadgeClass(selectedVaultNFT.rarity)}`}>
-                    {rarityIcon(selectedVaultNFT.rarity)} {selectedVaultNFT.rarity.toUpperCase()}
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Rarity mismatch warning */}
-      {rarityMismatch && (
-        <div className="mt-4 bg-orange-900/30 border border-orange-500/50 rounded-lg p-3">
-          <p className="text-orange-400 text-sm font-bold">Rarity mismatch</p>
-          <p className="text-xs text-gray-400 mt-1">
-            Your selected NFT is <strong>{selectedUserNFT!.rarity}</strong> but the vault NFT is{' '}
-            <strong>{selectedVaultNFT!.rarity}</strong>. Select a vault NFT of the same rarity tier.
-          </p>
-        </div>
-      )}
-
+      {/* ── Swap button ───────────────────────────────────────────────────── */}
       {publicKey && (
         <button
           onClick={handleSwap}
           disabled={!canSwap}
-          className={`w-full py-4 rounded-lg font-bold text-lg transition-all mt-6 ${
-            !canSwap
-              ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-              : 'bg-gradient-to-r from-green-500 to-teal-500 hover:opacity-90 text-white shadow-lg'
-          }`}
+          className={`btn-swap ${canSwap ? 'ready' : 'disabled'} mb-5`}
         >
           {swapping ? (
             <span className="flex items-center justify-center gap-2">
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-              Swapping...
+              <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+              Confirming swap…
             </span>
-          ) : !selectedUserNFT || !selectedVaultNFT ? (
+          ) : !publicKey ? (
+            'Connect wallet'
+          ) : !myNFT || !selectedVaultNFT ? (
             'Select both NFTs to swap'
           ) : rarityMismatch ? (
-            'Rarity mismatch — select matching tier'
+            `Rarity mismatch — ${myNFT.rarity} ≠ ${selectedVaultNFT.rarity}`
           ) : (
-            `↔ Swap ${selectedUserNFT.name} for ${selectedVaultNFT.name}`
+            `⇄ Swap ${myNFT.name} for ${selectedVaultNFT.name}`
           )}
         </button>
       )}
 
+      {/* ── Status messages ───────────────────────────────────────────────── */}
       {error && (
-        <div className="mt-4 bg-red-900/30 border border-red-500/50 rounded-lg p-4">
-          <p className="text-red-400 text-sm">{error}</p>
+        <div className="mb-5 px-4 py-3 rounded-xl bg-red-950/40 border border-red-800/50 text-sm text-red-300 animate-fade-up">
+          {error}
         </div>
       )}
-
       {success && (
-        <div className="mt-4 bg-green-900/30 border border-green-500/50 rounded-lg p-4">
-          <p className="text-green-400 text-sm mb-2">NFT Swap Successful!</p>
+        <div className="mb-5 px-4 py-3 rounded-xl bg-emerald-950/40 border border-emerald-700/50 animate-fade-up">
+          <p className="text-sm font-semibold text-emerald-400 mb-1">Swap confirmed!</p>
           <a
             href={`https://solscan.io/tx/${success}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-xs text-blue-400 hover:underline"
+            className="text-xs text-emerald-600 hover:text-emerald-400 underline underline-offset-2 transition-colors"
           >
-            View transaction on Solscan →
+            View on Solscan →
           </a>
         </div>
       )}
 
-      <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-4 text-sm mt-6">
-        <p className="text-green-400 font-bold mb-2">ℹ️ How it works</p>
-        <p className="text-gray-400 text-xs">
-          Your NFT is deposited into the vault and the selected vault NFT is transferred to you — in
-          a single atomic transaction. Both NFTs must share the same rarity tier. The $KID credited
-          by your deposit cancels out the $KID debited by the withdrawal, so your token balance is
-          unaffected.
+      {/* ── Your NFTs picker ──────────────────────────────────────────────── */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-gk-muted mb-3">
+          Your GhostKids
         </p>
+
+        {!publicKey ? (
+          <div className="gk-panel-inner p-8 text-center">
+            <p className="text-gk-muted text-sm">Connect your wallet to see your GhostKids</p>
+          </div>
+        ) : loading ? (
+          <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="skeleton aspect-square" aria-hidden="true" />
+            ))}
+          </div>
+        ) : userNFTs.length === 0 ? (
+          <div className="gk-panel-inner p-8 text-center">
+            <p className="text-gk-muted text-sm mb-1">No GhostKids in this wallet</p>
+            <p className="text-xs text-gk-dim">Make sure you're connected to the right wallet</p>
+          </div>
+        ) : (
+          <>
+            {/* Matching rarity group (prominent) */}
+            {suggestedNFTs.length > 0 && (
+              <div className="mb-4">
+                {selectedVaultNFT && (
+                  <p className="text-xs text-gk-muted mb-2">
+                    Matching {selectedVaultNFT.rarity} ({suggestedNFTs.length})
+                  </p>
+                )}
+                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                  {suggestedNFTs.map(nft => (
+                    <button
+                      key={nft.mint}
+                      onClick={() => setMyNFT(myNFT?.mint === nft.mint ? null : nft)}
+                      className={`nft-card ${myNFT?.mint === nft.mint ? `selected-${nft.rarity}` : ''}`}
+                      aria-label={`${nft.name} – ${RARITY_LABEL[nft.rarity]}`}
+                      aria-pressed={myNFT?.mint === nft.mint}
+                    >
+                      {nft.image ? (
+                        <img src={nft.image} alt={nft.name} className="w-full h-full object-cover" loading="lazy" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-2xl">👻</div>
+                      )}
+                      <span className={`rarity-badge ${nft.rarity}`}>{RARITY_ICON[nft.rarity]}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Other rarities (dimmed when vault selection active) */}
+            {otherNFTs.length > 0 && (
+              <div className={selectedVaultNFT ? 'opacity-35' : ''}>
+                {selectedVaultNFT && (
+                  <p className="text-xs text-gk-dim mb-2">Other rarities (incompatible with current selection)</p>
+                )}
+                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
+                  {otherNFTs.map(nft => (
+                    <button
+                      key={nft.mint}
+                      onClick={() => setMyNFT(myNFT?.mint === nft.mint ? null : nft)}
+                      className={`nft-card ${myNFT?.mint === nft.mint ? `selected-${nft.rarity}` : ''}`}
+                      aria-label={`${nft.name} – ${RARITY_LABEL[nft.rarity]}`}
+                      aria-pressed={myNFT?.mint === nft.mint}
+                    >
+                      {nft.image ? (
+                        <img src={nft.image} alt={nft.name} className="w-full h-full object-cover" loading="lazy" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-2xl">👻</div>
+                      )}
+                      <span className={`rarity-badge ${nft.rarity}`}>{RARITY_ICON[nft.rarity]}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

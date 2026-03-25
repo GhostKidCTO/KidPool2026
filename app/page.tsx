@@ -3,7 +3,7 @@
 import './polyfills';
 import { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { ConnectionProvider, WalletProvider, useConnection } from '@solana/wallet-adapter-react';
+import { ConnectionProvider, WalletProvider, useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
 import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
@@ -31,94 +31,180 @@ if (typeof window !== 'undefined') {
   require('@solana/wallet-adapter-react-ui/styles.css');
 }
 
+// ── Step indicator ───────────────────────────────────────────────────────────
+
+function Step({ n, state, children }: { n: number; state: 'pending' | 'active' | 'complete'; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-3 mb-5">
+      <div className={`step-dot ${state}`} aria-hidden="true">
+        {state === 'complete' ? '✓' : n}
+      </div>
+      <div className="flex-1">{children}</div>
+    </div>
+  );
+}
+
+// ── Main app (inner) ─────────────────────────────────────────────────────────
+
 function GhostKidApp() {
   const { connection } = useConnection();
+  const { publicKey } = useWallet();
   const [selectedNFT, setSelectedNFT] = useState<VaultNFT | null>(null);
 
+  const step1State = selectedNFT ? 'complete' : 'active';
+  const step2State = selectedNFT ? 'active' : 'pending';
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white">
-      <nav className="border-b border-gray-800 bg-black/50 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
+    <div className="min-h-screen" style={{ background: 'linear-gradient(180deg, #07071a 0%, #030309 100%)' }}>
+
+      {/* ── Nav ──────────────────────────────────────────────────────────── */}
+      <nav
+        className="sticky top-0 z-20 border-b"
+        style={{
+          background: 'rgba(7,7,26,0.85)',
+          borderColor: 'rgba(255,255,255,0.06)',
+          backdropFilter: 'blur(20px)',
+        }}
+      >
+        <div className="max-w-6xl mx-auto px-5 py-3.5 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-600 bg-clip-text text-transparent">
-              GhostKid Swap
-            </h1>
-            <span className="text-xs bg-purple-900/50 text-purple-300 border border-purple-500/30 px-2 py-1 rounded-full">
-              NFT ↔ NFT
+            <span className="text-xl font-black tracking-tight bg-gradient-to-r from-purple-400 to-fuchsia-500 bg-clip-text text-transparent">
+              GhostKid
+            </span>
+            <span
+              className="text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full"
+              style={{
+                background: 'rgba(147,51,234,0.15)',
+                color: '#c084fc',
+                border: '1px solid rgba(168,85,247,0.3)',
+              }}
+            >
+              NFT Swap
             </span>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-5">
             <a
               href="/kidpool"
-              className="text-sm text-gray-500 hover:text-gray-300 transition-colors"
+              className="text-xs font-medium transition-colors"
+              style={{ color: 'var(--gk-dim)' }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'var(--gk-muted)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'var(--gk-dim)')}
             >
-              $KID Pool →
+              $KID Pool
             </a>
             <WalletMultiButton />
           </div>
         </div>
       </nav>
 
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        <div className="text-center mb-10">
-          <h2 className="text-4xl font-bold mb-3">
+      {/* ── Disconnected hero ─────────────────────────────────────────────── */}
+      {!publicKey && (
+        <div className="max-w-6xl mx-auto px-5 pt-20 pb-12 text-center animate-fade-up">
+          <div className="text-6xl mb-6">👻</div>
+          <h1 className="text-5xl font-black tracking-tight mb-4" style={{ letterSpacing: '-0.03em' }}>
             Swap GhostKids
-          </h2>
-          <p className="text-gray-400 max-w-xl mx-auto">
-            Browse the vault, pick a GhostKid you want, then select one of yours of the same rarity to swap for it. No tokens needed.
+          </h1>
+          <p className="text-lg mb-8 max-w-md mx-auto leading-relaxed" style={{ color: 'var(--gk-muted)' }}>
+            Trade your GhostKid NFT for one from the vault — same rarity, no tokens, fully on-chain.
           </p>
-        </div>
+          <div className="flex justify-center mb-16">
+            <WalletMultiButton />
+          </div>
 
-        <div className="space-y-8">
-          {/* Step 1: Pick from vault */}
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <span className="w-7 h-7 rounded-full bg-purple-600 flex items-center justify-center text-sm font-bold flex-shrink-0">1</span>
-              <h3 className="text-lg font-semibold text-gray-200">Choose a GhostKid from the vault</h3>
+          {/* Feature pills */}
+          <div className="flex flex-wrap justify-center gap-3">
+            {['Same-rarity swap', 'No $KID required', 'Atomic transaction', 'Phantom & Solflare'].map(f => (
+              <span
+                key={f}
+                className="text-xs font-medium px-3 py-1.5 rounded-full"
+                style={{
+                  background: 'rgba(255,255,255,0.04)',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  color: 'var(--gk-muted)',
+                }}
+              >
+                {f}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Connected main content ────────────────────────────────────────── */}
+      <main className="max-w-6xl mx-auto px-5 py-8">
+
+        {/* Step 1 – Browse vault */}
+        <section className="mb-10">
+          <Step n={1} state={step1State}>
+            <div className="flex items-baseline justify-between flex-wrap gap-2">
+              <h2 className="text-base font-semibold" style={{ color: 'var(--gk-text)' }}>
+                Choose a GhostKid from the vault
+              </h2>
               {selectedNFT && (
-                <span className="ml-auto text-xs text-green-400 bg-green-900/30 border border-green-500/30 px-3 py-1 rounded-full">
-                  Selected: {selectedNFT.name}
+                <span className="text-xs font-medium" style={{ color: 'var(--gk-success)' }}>
+                  {selectedNFT.name} selected
                 </span>
               )}
             </div>
-            {connection && (
-              <VaultNFTs connection={connection} onNFTSelect={setSelectedNFT} />
-            )}
-          </div>
+          </Step>
+          {connection && (
+            <VaultNFTs connection={connection} onNFTSelect={setSelectedNFT} />
+          )}
+        </section>
 
-          {/* Step 2: Swap */}
-          <div>
-            <div className="flex items-center gap-3 mb-4">
-              <span className="w-7 h-7 rounded-full bg-purple-600 flex items-center justify-center text-sm font-bold flex-shrink-0">2</span>
-              <h3 className="text-lg font-semibold text-gray-200">Select your GhostKid to swap away</h3>
-            </div>
-            {connection && (
-              <SwapSection
-                connection={connection}
-                selectedVaultNFT={selectedNFT}
-                onSuccess={() => setSelectedNFT(null)}
-              />
-            )}
-          </div>
-        </div>
+        {/* Divider */}
+        <div
+          className="h-px my-10"
+          style={{ background: 'linear-gradient(90deg, transparent, rgba(168,85,247,0.2), transparent)' }}
+        />
+
+        {/* Step 2 – Pick yours and swap */}
+        <section>
+          <Step n={2} state={step2State}>
+            <h2 className="text-base font-semibold" style={{ color: step2State === 'pending' ? 'var(--gk-dim)' : 'var(--gk-text)' }}>
+              Pick your GhostKid and confirm the swap
+            </h2>
+          </Step>
+          {connection && (
+            <SwapSection
+              connection={connection}
+              selectedVaultNFT={selectedNFT}
+              onSuccess={() => setSelectedNFT(null)}
+            />
+          )}
+        </section>
       </main>
 
-      <footer className="border-t border-gray-800 mt-20 py-6 text-center text-gray-600 text-xs">
-        GhostKid DAO · SPL-404 · <a href="https://solscan.io/account/JCSbaLqdn6nKtTVTUjAaxsv28TBhmpypcY3VAqdGKWLA" target="_blank" rel="noopener noreferrer" className="hover:text-gray-400">Vault</a>
+      {/* ── Footer ───────────────────────────────────────────────────────── */}
+      <footer
+        className="border-t mt-20 py-6 text-center"
+        style={{ borderColor: 'rgba(255,255,255,0.05)', color: 'var(--gk-dim)', fontSize: '0.75rem' }}
+      >
+        GhostKid DAO · SPL-404 ·{' '}
+        <a
+          href="https://solscan.io/account/JCSbaLqdn6nKtTVTUjAaxsv28TBhmpypcY3VAqdGKWLA"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="transition-colors hover:underline"
+          style={{ color: 'var(--gk-dim)' }}
+          onMouseEnter={e => (e.currentTarget.style.color = 'var(--gk-muted)')}
+          onMouseLeave={e => (e.currentTarget.style.color = 'var(--gk-dim)')}
+        >
+          Vault
+        </a>
       </footer>
     </div>
   );
 }
 
-export default function Home() {
-  const endpoint = useMemo(() => {
-    return process.env.NEXT_PUBLIC_RPC_ENDPOINT || clusterApiUrl(WalletAdapterNetwork.Mainnet);
-  }, []);
+// ── Root ─────────────────────────────────────────────────────────────────────
 
-  const wallets = useMemo(
-    () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
+export default function Home() {
+  const endpoint = useMemo(
+    () => process.env.NEXT_PUBLIC_RPC_ENDPOINT || clusterApiUrl(WalletAdapterNetwork.Mainnet),
     []
   );
+  const wallets = useMemo(() => [new PhantomWalletAdapter(), new SolflareWalletAdapter()], []);
 
   return (
     <ConnectionProvider endpoint={endpoint}>
