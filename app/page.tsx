@@ -23,6 +23,10 @@ const WrapSection = dynamic(
   async () => (await import('./components/WrapSection')).WrapSection,
   { ssr: false }
 );
+const SwapSection = dynamic(
+  async () => (await import('./components/SwapSection')).SwapSection,
+  { ssr: false }
+);
 
 // Dynamically import wallet UI components to avoid SSR issues
 const WalletModalProvider = dynamic(
@@ -125,6 +129,7 @@ function GhostKidApp() {
               {connection && <UnwrapSection connection={connection} kidBalance={kidBalance} selectedNFT={selectedNFT} onSuccess={() => { fetchKidBalance(); setSelectedNFT(null); }} />}
               {connection && <WrapSection connection={connection} />}
             </div>
+            {connection && <SwapSection connection={connection} selectedVaultNFT={selectedNFT} onSuccess={() => setSelectedNFT(null)} />}
           </div>
         )}
       </main>
