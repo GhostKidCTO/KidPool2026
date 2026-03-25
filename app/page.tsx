@@ -1,21 +1,21 @@
 'use client';
 
 import './polyfills';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { ConnectionProvider, WalletProvider, useConnection, useWallet } from '@solana/wallet-adapter-react';
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
 import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
-import { clusterApiUrl } from '@solana/web3.js';
+import { clusterApiUrl, PublicKey } from '@solana/web3.js';
 import type { VaultNFT } from './components/VaultNFTs';
 
 const VaultNFTs = dynamic(
   async () => (await import('./components/VaultNFTs')).VaultNFTs,
   { ssr: false }
 );
-const SwapSection = dynamic(
-  async () => (await import('./components/SwapSection')).SwapSection,
+const UnwrapSection = dynamic(
+  async () => (await import('./components/UnwrapSection')).UnwrapSection,
   { ssr: false }
 );
 const WalletModalProvider = dynamic(
@@ -31,28 +31,37 @@ if (typeof window !== 'undefined') {
   require('@solana/wallet-adapter-react-ui/styles.css');
 }
 
-// ── Step indicator ───────────────────────────────────────────────────────────
-
-function Step({ n, state, children }: { n: number; state: 'pending' | 'active' | 'complete'; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center gap-3 mb-5">
-      <div className={`step-dot ${state}`} aria-hidden="true">
-        {state === 'complete' ? '✓' : n}
-      </div>
-      <div className="flex-1">{children}</div>
-    </div>
-  );
-}
+const KID_MINT = '4peG5vF6VXbUt8PPA5LDbtdeRAPBGGrspDMW3ot6TdeX';
 
 // ── Main app (inner) ─────────────────────────────────────────────────────────
 
 function GhostKidApp() {
   const { connection } = useConnection();
   const { publicKey } = useWallet();
+  const [kidBalance, setKidBalance] = useState(0);
   const [selectedNFT, setSelectedNFT] = useState<VaultNFT | null>(null);
 
-  const step1State = selectedNFT ? 'complete' : 'active';
-  const step2State = selectedNFT ? 'active' : 'pending';
+  useEffect(() => {
+    if (publicKey) fetchKidBalance();
+    else setKidBalance(0);
+  }, [publicKey]);
+
+  async function fetchKidBalance() {
+    if (!publicKey) return;
+    try {
+      const accounts = await connection.getParsedTokenAccountsByOwner(
+        publicKey,
+        { mint: new PublicKey(KID_MINT) }
+      );
+      setKidBalance(
+        accounts.value.length > 0
+          ? accounts.value[0].account.data.parsed.info.tokenAmount.uiAmount || 0
+          : 0
+      );
+    } catch {
+      setKidBalance(0);
+    }
+  }
 
   return (
     <div className="min-h-screen" style={{ background: 'linear-gradient(180deg, #07071a 0%, #030309 100%)' }}>
@@ -79,21 +88,22 @@ function GhostKidApp() {
                 border: '1px solid rgba(168,85,247,0.3)',
               }}
             >
-              NFT Swap
-            </span>
-          </div>
-          <div className="flex items-center gap-5">
-            <a
-              href="/kidpool"
-              className="text-xs font-medium transition-colors"
-              style={{ color: 'var(--gk-dim)' }}
-              onMouseEnter={e => (e.currentTarget.style.color = 'var(--gk-muted)')}
-              onMouseLeave={e => (e.currentTarget.style.color = 'var(--gk-dim)')}
-            >
               $KID Pool
-            </a>
-            <WalletMultiButton />
+            </span>
+            {publicKey && (
+              <span
+                className="text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full"
+                style={{
+                  background: 'rgba(59,130,246,0.15)',
+                  color: '#60a5fa',
+                  border: '1px solid rgba(59,130,246,0.3)',
+                }}
+              >
+                {kidBalance.toLocaleString()} $KID
+              </span>
+            )}
           </div>
+          <WalletMultiButton />
         </div>
       </nav>
 
@@ -102,10 +112,10 @@ function GhostKidApp() {
         <div className="max-w-6xl mx-auto px-5 pt-20 pb-12 text-center animate-fade-up">
           <div className="text-6xl mb-6">👻</div>
           <h1 className="text-5xl font-black tracking-tight mb-4" style={{ letterSpacing: '-0.03em' }}>
-            Swap GhostKids
+            Get a GhostKid
           </h1>
           <p className="text-lg mb-8 max-w-md mx-auto leading-relaxed" style={{ color: 'var(--gk-muted)' }}>
-            Trade your GhostKid NFT for one from the vault — same rarity, no tokens, fully on-chain.
+            Spend $KID tokens to claim a GhostKid NFT directly from the vault — fully on-chain, no intermediaries.
           </p>
           <div className="flex justify-center mb-16">
             <WalletMultiButton />
@@ -113,7 +123,7 @@ function GhostKidApp() {
 
           {/* Feature pills */}
           <div className="flex flex-wrap justify-center gap-3">
-            {['Same-rarity swap', 'No $KID required', 'Atomic transaction', 'Phantom & Solflare'].map(f => (
+            {['Spend $KID · Get NFT', 'Common · Rare · Legendary', 'Phantom & Solflare', 'Fully on-chain'].map(f => (
               <span
                 key={f}
                 className="text-xs font-medium px-3 py-1.5 rounded-full"
@@ -130,46 +140,40 @@ function GhostKidApp() {
         </div>
       )}
 
-      {/* ── Connected main content ────────────────────────────────────────── */}
+      {/* ── Main content ──────────────────────────────────────────────────── */}
       <main className="max-w-6xl mx-auto px-5 py-8">
 
-        {/* Step 1 – Browse vault */}
+        {/* Vault browser */}
         <section className="mb-10">
-          <Step n={1} state={step1State}>
-            <div className="flex items-baseline justify-between flex-wrap gap-2">
-              <h2 className="text-base font-semibold" style={{ color: 'var(--gk-text)' }}>
-                Choose a GhostKid from the vault
-              </h2>
-              {selectedNFT && (
-                <span className="text-xs font-medium" style={{ color: 'var(--gk-success)' }}>
-                  {selectedNFT.name} selected
-                </span>
-              )}
-            </div>
-          </Step>
+          <p className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: 'var(--gk-muted)' }}>
+            Choose a GhostKid from the vault
+            {selectedNFT && (
+              <span className="ml-3 normal-case font-medium" style={{ color: 'var(--gk-success)' }}>
+                — {selectedNFT.name} selected
+              </span>
+            )}
+          </p>
           {connection && (
             <VaultNFTs connection={connection} onNFTSelect={setSelectedNFT} />
           )}
         </section>
 
-        {/* Divider */}
         <div
           className="h-px my-10"
           style={{ background: 'linear-gradient(90deg, transparent, rgba(168,85,247,0.2), transparent)' }}
         />
 
-        {/* Step 2 – Pick yours and swap */}
+        {/* Unwrap */}
         <section>
-          <Step n={2} state={step2State}>
-            <h2 className="text-base font-semibold" style={{ color: step2State === 'pending' ? 'var(--gk-dim)' : 'var(--gk-text)' }}>
-              Pick your GhostKid and confirm the swap
-            </h2>
-          </Step>
+          <p className="text-xs font-semibold uppercase tracking-widest mb-4" style={{ color: 'var(--gk-muted)' }}>
+            Spend $KID to receive selected NFT
+          </p>
           {connection && (
-            <SwapSection
+            <UnwrapSection
               connection={connection}
-              selectedVaultNFT={selectedNFT}
-              onSuccess={() => setSelectedNFT(null)}
+              kidBalance={kidBalance}
+              selectedNFT={selectedNFT}
+              onSuccess={() => { fetchKidBalance(); setSelectedNFT(null); }}
             />
           )}
         </section>
