@@ -114,10 +114,10 @@ export function getDepositNftsInstruction(
     { pubkey: accounts.nftReceipt, isSigner: false, isWritable: true },               // #0
     { pubkey: accounts.vault, isSigner: false, isWritable: true },                     // #1
     { pubkey: accounts.vaultTokenAccount, isSigner: false, isWritable: true },         // #2
-    { pubkey: accounts.authority, isSigner: false, isWritable: true },                 // #3
+    { pubkey: accounts.authority, isSigner: true, isWritable: true },                  // #3 authority MUST sign (confirmed from ref tx)
     { pubkey: accounts.depositor, isSigner: true, isWritable: true },                  // #4
-    { pubkey: accounts.depositorTokenAccount, isSigner: false, isWritable: true },     // #5 (receives $KID)
-    { pubkey: accounts.sourceNftTokenAccount, isSigner: false, isWritable: true },     // #6 (user's NFT account)
+    { pubkey: accounts.sourceNftTokenAccount, isSigner: false, isWritable: true },     // #5 user's NFT ATA (source — confirmed from ref tx)
+    { pubkey: accounts.depositorTokenAccount, isSigner: false, isWritable: true },     // #6 user's $KID ATA (receives $KID)
     { pubkey: accounts.mint, isSigner: false, isWritable: false },                     // #7
     { pubkey: accounts.destinationNftTokenAccount, isSigner: false, isWritable: true },// #8 (vault's NFT account)
     { pubkey: accounts.sourceTokenRecord, isSigner: false, isWritable: true },         // #9 (user's token record)

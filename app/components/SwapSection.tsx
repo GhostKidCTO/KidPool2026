@@ -107,15 +107,6 @@ export function SwapSection({
   const [swapping, setSwapping] = useState(false);
   const [error, setError]       = useState<string | null>(null);
   const [success, setSuccess]   = useState<string | null>(null);
-  const [authorityReady, setAuthorityReady] = useState<boolean | null>(null);
-
-  // Check whether the server has the authority key configured
-  useEffect(() => {
-    fetch('/api/status')
-      .then(r => r.json())
-      .then(d => setAuthorityReady(d.authorityConfigured === true))
-      .catch(() => setAuthorityReady(false));
-  }, []);
 
   useEffect(() => {
     if (publicKey) fetchUserNFTs();
@@ -209,7 +200,7 @@ export function SwapSection({
   }
 
   const rarityMismatch = myNFT && selectedVaultNFT && myNFT.rarity !== selectedVaultNFT.rarity;
-  const canSwap = !!myNFT && !!selectedVaultNFT && !rarityMismatch && !swapping && !!publicKey && !!authorityReady;
+  const canSwap = !!myNFT && !!selectedVaultNFT && !rarityMismatch && !swapping && !!publicKey;
 
   // Filter user's NFTs to same rarity as vault selection for quick discovery
   const suggestedNFTs = selectedVaultNFT
@@ -219,40 +210,6 @@ export function SwapSection({
   const otherNFTs = selectedVaultNFT
     ? userNFTs.filter(n => n.rarity !== selectedVaultNFT.rarity)
     : [];
-
-  // ── Authority not configured — show maintenance banner ──────────────────
-  if (authorityReady === false) {
-    return (
-      <div className="gk-panel p-8 text-center animate-fade-up">
-        <div className="text-4xl mb-4">🔧</div>
-        <h3 className="text-base font-semibold mb-2">Swap temporarily unavailable</h3>
-        <p className="text-sm mb-4 max-w-sm mx-auto leading-relaxed" style={{ color: 'var(--gk-muted)' }}>
-          The program authority wallet is being restored. NFT swaps will be live again shortly.
-        </p>
-        <a
-          href="/kidpool"
-          className="inline-block text-xs px-4 py-2 rounded-lg transition-colors"
-          style={{
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            color: 'var(--gk-muted)',
-          }}
-        >
-          Check $KID Pool status →
-        </a>
-      </div>
-    );
-  }
-
-  // Loading status check
-  if (authorityReady === null) {
-    return (
-      <div className="gk-panel p-8 text-center animate-fade-up">
-        <div className="skeleton h-4 w-32 rounded mx-auto mb-3" />
-        <div className="skeleton h-3 w-48 rounded mx-auto" />
-      </div>
-    );
-  }
 
   return (
     <div className="gk-panel p-6 animate-fade-up">
