@@ -1,34 +1,23 @@
 'use client';
 
 import './polyfills';
-import { useMemo, useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import dynamic from 'next/dynamic';
-import { ConnectionProvider, WalletProvider, useWallet, useConnection } from '@solana/wallet-adapter-react';
+import { ConnectionProvider, WalletProvider, useConnection } from '@solana/wallet-adapter-react';
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-phantom';
 import { SolflareWalletAdapter } from '@solana/wallet-adapter-solflare';
-import { clusterApiUrl, PublicKey, Connection } from '@solana/web3.js';
+import { clusterApiUrl } from '@solana/web3.js';
 import type { VaultNFT } from './components/VaultNFTs';
 
-// Dynamically import Solana-heavy components to avoid SSR issues with bigint-buffer / spl-token
 const VaultNFTs = dynamic(
   async () => (await import('./components/VaultNFTs')).VaultNFTs,
-  { ssr: false }
-);
-const UnwrapSection = dynamic(
-  async () => (await import('./components/UnwrapSection')).UnwrapSection,
-  { ssr: false }
-);
-const WrapSection = dynamic(
-  async () => (await import('./components/WrapSection')).WrapSection,
   { ssr: false }
 );
 const SwapSection = dynamic(
   async () => (await import('./components/SwapSection')).SwapSection,
   { ssr: false }
 );
-
-// Dynamically import wallet UI components to avoid SSR issues
 const WalletModalProvider = dynamic(
   async () => (await import('@solana/wallet-adapter-react-ui')).WalletModalProvider,
   { ssr: false }
@@ -42,122 +31,92 @@ if (typeof window !== 'undefined') {
   require('@solana/wallet-adapter-react-ui/styles.css');
 }
 
-const ADDRESSES = {
-  kidsTokenMint: '4peG5vF6VXbUt8PPA5LDbtdeRAPBGGrspDMW3ot6TdeX',
-  ghostKidCollection: 'FSw4cZhK5pMmhEDenDpa3CauJ9kLt5agr2U1oQxaH2cv',
-  ghostKidVault: 'JCSbaLqdn6nKtTVTUjAaxsv28TBhmpypcY3VAqdGKWLA',
-  ghostKidProgram: '4BTy6FpUakBpNNTJFF6V7BK4fKR2bds6Sh523Z3gxy4k',
-  ghostKidAuthority: 'qgDDcomgjASwB27LaxMFXyzhpuzvRpkCSzbdDJcoEks',
-};
-
 function GhostKidApp() {
   const { connection } = useConnection();
-  const { publicKey } = useWallet();
-  const [kidBalance, setKidBalance] = useState<number>(0);
-  const [balanceError, setBalanceError] = useState<string | null>(null);
   const [selectedNFT, setSelectedNFT] = useState<VaultNFT | null>(null);
-
-  useEffect(() => {
-    if (publicKey) {
-      fetchKidBalance();
-    } else {
-      setKidBalance(0);
-      setBalanceError(null);
-    }
-  }, [publicKey]);
-
-  async function fetchKidBalance() {
-    if (!publicKey) return;
-
-    try {
-      setBalanceError(null);
-      // Get associated token account for $KID
-      const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
-        publicKey,
-        { mint: new PublicKey(ADDRESSES.kidsTokenMint) }
-      );
-
-      if (tokenAccounts.value.length > 0) {
-        const balance = tokenAccounts.value[0].account.data.parsed.info.tokenAmount.uiAmount;
-        setKidBalance(balance || 0);
-      } else {
-        setKidBalance(0);
-      }
-    } catch (err: any) {
-      console.error('Error fetching $KID balance:', err);
-      setBalanceError(err?.message || 'Failed to fetch balance');
-      setKidBalance(0);
-    }
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white">
-      <nav className="border-b border-gray-800 bg-black/50 backdrop-blur-sm">
+      <nav className="border-b border-gray-800 bg-black/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-pink-600 bg-clip-text text-transparent">
-              GhostKid SPL-404
+              GhostKid Swap
             </h1>
-            {publicKey && (
-              <div className="text-sm bg-gray-800/50 px-4 py-2 rounded-lg">
-                $KID Balance: <span className="font-bold text-purple-400">{kidBalance.toFixed(2)}</span>
-              </div>
-            )}
+            <span className="text-xs bg-purple-900/50 text-purple-300 border border-purple-500/30 px-2 py-1 rounded-full">
+              NFT ↔ NFT
+            </span>
           </div>
-          <WalletMultiButton />
+          <div className="flex items-center gap-4">
+            <a
+              href="/kidpool"
+              className="text-sm text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              $KID Pool →
+            </a>
+            <WalletMultiButton />
+          </div>
         </div>
       </nav>
 
       <main className="max-w-7xl mx-auto px-4 py-8">
-        {!publicKey ? (
-          <div className="text-center py-20">
-            <h2 className="text-4xl font-bold mb-4">Welcome to GhostKid SPL-404</h2>
-            <p className="text-gray-400 mb-8">Connect your wallet to view vault NFTs and unwrap $KID tokens</p>
-            <div className="flex justify-center">
-              <WalletMultiButton />
+        <div className="text-center mb-10">
+          <h2 className="text-4xl font-bold mb-3">
+            Swap GhostKids
+          </h2>
+          <p className="text-gray-400 max-w-xl mx-auto">
+            Browse the vault, pick a GhostKid you want, then select one of yours of the same rarity to swap for it. No tokens needed.
+          </p>
+        </div>
+
+        <div className="space-y-8">
+          {/* Step 1: Pick from vault */}
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <span className="w-7 h-7 rounded-full bg-purple-600 flex items-center justify-center text-sm font-bold flex-shrink-0">1</span>
+              <h3 className="text-lg font-semibold text-gray-200">Choose a GhostKid from the vault</h3>
+              {selectedNFT && (
+                <span className="ml-auto text-xs text-green-400 bg-green-900/30 border border-green-500/30 px-3 py-1 rounded-full">
+                  Selected: {selectedNFT.name}
+                </span>
+              )}
             </div>
-          </div>
-        ) : (
-          <div className="space-y-8">
-            {balanceError && (
-              <div className="bg-yellow-900/30 border border-yellow-500/50 rounded-lg p-4">
-                <p className="text-yellow-400 text-sm">⚠️ Error loading balance: {balanceError}</p>
-              </div>
+            {connection && (
+              <VaultNFTs connection={connection} onNFTSelect={setSelectedNFT} />
             )}
-            {connection && <VaultNFTs connection={connection} onNFTSelect={setSelectedNFT} />}
-            <div className="grid md:grid-cols-2 gap-8">
-              {connection && <UnwrapSection connection={connection} kidBalance={kidBalance} selectedNFT={selectedNFT} onSuccess={() => { fetchKidBalance(); setSelectedNFT(null); }} />}
-              {connection && <WrapSection connection={connection} />}
-            </div>
-            {connection && <SwapSection connection={connection} selectedVaultNFT={selectedNFT} onSuccess={() => setSelectedNFT(null)} />}
           </div>
-        )}
+
+          {/* Step 2: Swap */}
+          <div>
+            <div className="flex items-center gap-3 mb-4">
+              <span className="w-7 h-7 rounded-full bg-purple-600 flex items-center justify-center text-sm font-bold flex-shrink-0">2</span>
+              <h3 className="text-lg font-semibold text-gray-200">Select your GhostKid to swap away</h3>
+            </div>
+            {connection && (
+              <SwapSection
+                connection={connection}
+                selectedVaultNFT={selectedNFT}
+                onSuccess={() => setSelectedNFT(null)}
+              />
+            )}
+          </div>
+        </div>
       </main>
 
-      <footer className="border-t border-gray-800 mt-20 py-8 text-center text-gray-500 text-sm">
-        <p>GhostKid DAO • SPL-404 Hybrid Token System</p>
-        <p className="mt-2">Program: {ADDRESSES.ghostKidProgram.slice(0, 8)}...</p>
+      <footer className="border-t border-gray-800 mt-20 py-6 text-center text-gray-600 text-xs">
+        GhostKid DAO · SPL-404 · <a href="https://solscan.io/account/JCSbaLqdn6nKtTVTUjAaxsv28TBhmpypcY3VAqdGKWLA" target="_blank" rel="noopener noreferrer" className="hover:text-gray-400">Vault</a>
       </footer>
     </div>
   );
 }
 
 export default function Home() {
-  // Use RPC endpoint from environment variable or fallback to clusterApiUrl
   const endpoint = useMemo(() => {
-    const envEndpoint = process.env.NEXT_PUBLIC_RPC_ENDPOINT;
-    if (envEndpoint) {
-      return envEndpoint;
-    }
-    // Fallback to Solana public endpoint (may be rate limited)
-    return clusterApiUrl(WalletAdapterNetwork.Mainnet);
+    return process.env.NEXT_PUBLIC_RPC_ENDPOINT || clusterApiUrl(WalletAdapterNetwork.Mainnet);
   }, []);
 
   const wallets = useMemo(
-    () => [
-      new PhantomWalletAdapter(),
-      new SolflareWalletAdapter(),
-    ],
+    () => [new PhantomWalletAdapter(), new SolflareWalletAdapter()],
     []
   );
 
